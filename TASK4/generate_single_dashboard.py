@@ -157,26 +157,28 @@ function runTurtle(data,lot,s1e,s1x,s2e,s2x){{
   const si=Math.max(s2e,20)+1;
 
   function us(nv){{const r=Math.floor(cash*0.01/(nv*lot));return Math.max(r*lot,lot)}}
+  function totalUnits(){{return holdings.reduce((s,h)=>s+h.u,0)}}
+  const SINGLE_MAX=4;
 
   for(let i=si;i<n;i++){{
     const td=data[i],nv=atr[i];if(isNaN(nv)||nv<=0){{eq.push([td.d,cash,0]);continue}}
     // stops
-    const rm=[];for(const h of holdings){{if(td.l<h.stop){{cash+=h.stop*h.shares;pos.push({{sys:h.sys,ed:h.entry_date,ep:h.ep,exd:td.d,exp:h.stop,xr:'STOP_LOSS',u:h.u,shares:h.shares,pnl:(h.stop-h.ep)*h.shares}});sigs.push({{d:td.d,sys:h.sys,tp:'STOP',px:h.stop}});if(h.sys==='S1')lastS1pnl=(h.stop-h.ep)*h.shares;rm.push(h)}}}}holdings=holdings.filter(h=>!rm.includes(h));
+    const rm=[];for(const h of holdings){{if(td.l<h.stop){{cash+=h.stop*h.shares;const avg=h.cost/h.shares;pos.push({{sys:h.sys,ed:h.entry_date,ep:avg,exd:td.d,exp:h.stop,xr:'STOP_LOSS',u:h.u,shares:h.shares,pnl:(h.stop-avg)*h.shares}});sigs.push({{d:td.d,sys:h.sys,tp:'STOP',px:h.stop}});if(h.sys==='S1')lastS1pnl=(h.stop-avg)*h.shares;rm.push(h)}}}}holdings=holdings.filter(h=>!rm.includes(h));
     // trailing exits
     [{{sys:'S2',low:s2.lower,label:'TRAILING_S2'}},{{sys:'S1',low:s1.lower,label:'TRAILING_S1'}}].forEach(({{sys,low,label}})=>{{
-      if(!isNaN(low[i])&&td.c<low[i]){{for(const h of [...holdings]){{if(h.sys!==sys)continue;const px=data[Math.min(i+1,n-1)].o*0.999;cash+=px*h.shares;pos.push({{sys,ed:h.entry_date,ep:h.ep,exd:td.d,exp:px,xr:label,u:h.u,shares:h.shares,pnl:(px-h.ep)*h.shares}});sigs.push({{d:td.d,sys,tp:'SELL',px}});if(sys==='S1')lastS1pnl=(px-h.ep)*h.shares;holdings=holdings.filter(x=>x!==h)}}}}
+      if(!isNaN(low[i])&&td.c<low[i]){{for(const h of [...holdings]){{if(h.sys!==sys)continue;const px=data[Math.min(i+1,n-1)].o*0.999;cash+=px*h.shares;const avg=h.cost/h.shares;pos.push({{sys,ed:h.entry_date,ep:avg,exd:data[Math.min(i+1,n-1)].d,exp:px,xr:label,u:h.u,shares:h.shares,pnl:(px-avg)*h.shares}});sigs.push({{d:data[Math.min(i+1,n-1)].d,sys,tp:'SELL',px}});if(sys==='S1')lastS1pnl=(px-avg)*h.shares;holdings=holdings.filter(x=>x!==h)}}}}
     }});
     // S2 entry
-    if(!isNaN(s2.upper[i])&&td.c>s2.upper[i]&&!holdings.some(h=>h.sys==='S2')&&i+1<n){{const px=data[i+1].o*1.001,sz=us(nv);if(sz>0&&px*sz<=cash){{cash-=px*sz;holdings.push({{sys:'S2',entry_date:data[i+1].d,ep:px,en:nv,u:1,shares:sz,stop:px-2*nv,addP:[px]}});sigs.push({{d:td.d,sys:'S2',tp:'BUY',px,u:1}})}}}}
+    if(!isNaN(s2.upper[i])&&td.c>s2.upper[i]&&!holdings.some(h=>h.sys==='S2')&&totalUnits()<SINGLE_MAX&&i+1<n){{const px=data[i+1].o*1.001,sz=us(nv);if(sz>0&&px*sz<=cash){{cash-=px*sz;holdings.push({{sys:'S2',entry_date:data[i+1].d,ep:px,en:nv,u:1,shares:sz,cost:px*sz,stop:px-2*nv,addP:[px]}});sigs.push({{d:td.d,sys:'S2',tp:'BUY',px,u:1}})}}}}
     // S1 entry
-    if(!isNaN(s1.upper[i])&&td.c>s1.upper[i]&&!holdings.some(h=>h.sys==='S1')&&lastS1pnl>=0&&i+1<n){{const px=data[i+1].o*1.001,sz=us(nv);if(sz>0&&px*sz<=cash){{cash-=px*sz;holdings.push({{sys:'S1',entry_date:data[i+1].d,ep:px,en:nv,u:1,shares:sz,stop:px-2*nv,addP:[px]}});sigs.push({{d:td.d,sys:'S1',tp:'BUY',px,u:1}})}}}}
+    if(!isNaN(s1.upper[i])&&td.c>s1.upper[i]&&!holdings.some(h=>h.sys==='S1')&&lastS1pnl>=0&&totalUnits()<SINGLE_MAX&&i+1<n){{const px=data[i+1].o*1.001,sz=us(nv);if(sz>0&&px*sz<=cash){{cash-=px*sz;holdings.push({{sys:'S1',entry_date:data[i+1].d,ep:px,en:nv,u:1,shares:sz,cost:px*sz,stop:px-2*nv,addP:[px]}});sigs.push({{d:td.d,sys:'S1',tp:'BUY',px,u:1}})}}}}
     // pyramid
-    for(const h of holdings){{if(h.u>=4||i+1>=n)continue;const nd=h.addP[h.addP.length-1]+0.5*h.en;if(td.c>=nd){{const px=data[i+1].o*1.001,sz=us(nv);if(sz>0&&px*sz<=cash){{cash-=px*sz;h.u++;h.shares+=sz;h.addP.push(px);h.stop=Math.max(h.stop,px-2*nv);sigs.push({{d:td.d,sys:h.sys,tp:'ADD',px,u:h.u}})}}}}}}
+    for(const h of holdings){{if(h.u>=4||i+1>=n||totalUnits()>=SINGLE_MAX)continue;const nd=h.addP[h.addP.length-1]+0.5*h.en;if(td.c>=nd){{const px=data[i+1].o*1.001,sz=us(nv);if(sz>0&&px*sz<=cash){{cash-=px*sz;h.u++;h.shares+=sz;h.cost+=px*sz;h.addP.push(px);h.stop=Math.max(h.stop,px-2*nv);sigs.push({{d:td.d,sys:h.sys,tp:'ADD',px,u:h.u}})}}}}}}
     // equity
     let mkt=0;for(const h of holdings)mkt+=h.shares*td.c;eq.push([td.d,cash+mkt,holdings.reduce((s,h)=>s+h.u,0)]);
   }}
   // force exit
-  for(const h of holdings){{const px=data[n-1].c;cash+=px*h.shares;pos.push({{sys:h.sys,ed:h.entry_date,ep:h.ep,exd:data[n-1].d,exp:px,xr:'END_OF_DATA',u:h.u,shares:h.shares,pnl:(px-h.ep)*h.shares}})}}
+  for(const h of holdings){{const px=data[n-1].c;cash+=px*h.shares;const avg=h.cost/h.shares;pos.push({{sys:h.sys,ed:h.entry_date,ep:avg,exd:data[n-1].d,exp:px,xr:'END_OF_DATA',u:h.u,shares:h.shares,pnl:(px-avg)*h.shares}})}}
   return{{tr,atr,s1u:s1.upper,s1l:s1.lower,s2u:s2.upper,s2l:s2.lower,pos,sigs,eq,data}};
 }}
 
@@ -235,22 +237,22 @@ function render(){{
 
   const dates=d.map(x=>toDate(x.d));
 
-  // Chart 1: K-line — dynamic legend
+  // Chart 1: K-line — time axis, filter NaN
   const c1=getChart('ch1');
-  if(c1){{const mk=d.map((x,i)=>[dates[i],x.o,x.c,x.l,x.h]);
+  if(c1){{const mk=d.map(x=>[toDate(x.d),x.o,x.c,x.l,x.h]);
   const pp=getParams();
-  const lS2e='系统2上轨('+pp.s2e+'日)',lS2x='系统2下轨('+pp.s2x+'日)';
-  const lS1e='系统1上轨('+pp.s1e+'日)',lS1x='系统1下轨('+pp.s1x+'日)';
-  c1.setOption({{tooltip:{{trigger:'axis',axisPointer:{{type:'cross'}}}},grid:{{left:65,right:25,top:35,bottom:20}},xAxis:{{type:'category',data:dates,axisLabel:{{fontSize:8,rotate:45,interval:Math.max(1,Math.floor(dates.length/10))}}}},yAxis:{{type:'value',scale:true,axisLabel:{{fontSize:9}}}},series:[
+  const lS2e='S2上轨('+pp.s2e+'日)',lS2x='S2下轨('+pp.s2x+'日)';
+  const lS1e='S1上轨('+pp.s1e+'日)',lS1x='S1下轨('+pp.s1x+'日)';
+  c1.setOption({{tooltip:{{trigger:'axis',axisPointer:{{type:'cross'}}}},grid:{{left:65,right:25,top:35,bottom:20}},xAxis:{{type:'time',axisLabel:{{fontSize:8}}}},yAxis:{{type:'value',scale:true,axisLabel:{{fontSize:9}}}},series:[
     {{name:'K线',type:'candlestick',data:mk,itemStyle:{{color:'#EF4444',color0:'#22C55E',borderColor:'#DC2626',borderColor0:'#16A34A'}}}},
-    {{name:lS2e,type:'line',data:r.s2u.map((v,i)=>[dates[i],v]),lineStyle:{{color:'#3B82F6',width:1.8}},symbol:'none',connectNulls:false}},
-    {{name:lS2x,type:'line',data:r.s2l.map((v,i)=>[dates[i],v]),lineStyle:{{color:'#3B82F6',width:1.8}},symbol:'none',connectNulls:false,areaStyle:{{color:'rgba(59,130,246,0.06)'}}}},
-    {{name:lS1e,type:'line',data:r.s1u.map((v,i)=>[dates[i],v]),lineStyle:{{color:'#F97316',width:1.2,type:'dashed',dashOffset:3}},symbol:'none',connectNulls:false}},
-    {{name:lS1x,type:'line',data:r.s1l.map((v,i)=>[dates[i],v]),lineStyle:{{color:'#EF4444',width:1.2,type:'dashed',dashOffset:3}},symbol:'none',connectNulls:false}},
+    {{name:lS2e,type:'line',data:r.s2u.map((v,i)=>v!=null&&!isNaN(v)?[dates[i],v]:null).filter(Boolean),lineStyle:{{color:'#3B82F6',width:1.8}},symbol:'none'}},
+    {{name:lS2x,type:'line',data:r.s2l.map((v,i)=>v!=null&&!isNaN(v)?[dates[i],v]:null).filter(Boolean),lineStyle:{{color:'#3B82F6',width:1.8}},symbol:'none',areaStyle:{{color:'rgba(59,130,246,0.06)'}}}},
+    {{name:lS1e,type:'line',data:r.s1u.map((v,i)=>v!=null&&!isNaN(v)?[dates[i],v]:null).filter(Boolean),lineStyle:{{color:'#F97316',width:1.2,type:'dashed',dashOffset:3}},symbol:'none'}},
+    {{name:lS1x,type:'line',data:r.s1l.map((v,i)=>v!=null&&!isNaN(v)?[dates[i],v]:null).filter(Boolean),lineStyle:{{color:'#EF4444',width:1.2,type:'dashed',dashOffset:3}},symbol:'none'}},
     {{name:'买入',type:'scatter',data:r.sigs.filter(s=>s.tp==='BUY').map(s=>[toDate(s.d),s.px]),symbol:'arrow',symbolSize:16,itemStyle:{{color:'#DC2626'}}}},
     {{name:'加仓',type:'scatter',data:r.sigs.filter(s=>s.tp==='ADD').map(s=>[toDate(s.d),s.px]),symbol:'diamond',symbolSize:10,itemStyle:{{color:'#F97316',borderColor:'#fff',borderWidth:1}}}},
-    {{name:'止损/出场',type:'scatter',data:r.sigs.filter(s=>s.tp==='SELL'||s.tp==='STOP').map(s=>[toDate(s.d),s.px]),symbol:'arrow',symbolSize:16,itemStyle:{{color:'#16A34A'}},symbolRotate:180}},
-  ],legend:{{data:['K线',lS2e,lS2x,lS1e,lS1x,'买入','加仓','止损/出场'],top:0,left:'center',textStyle:{{fontSize:9}},itemGap:6}}}},true);}}
+    {{name:'止损',type:'scatter',data:r.sigs.filter(s=>s.tp==='SELL'||s.tp==='STOP').map(s=>[toDate(s.d),s.px]),symbol:'arrow',symbolSize:16,itemStyle:{{color:'#16A34A'}},symbolRotate:180}},
+  ],legend:{{data:['K线',lS2e,lS2x,lS1e,lS1x,'买入','加仓','止损'],top:0,left:'center',textStyle:{{fontSize:9}},itemGap:6}}}},true);}}
 
   // Chart 2: TR + ATR
   const c2=getChart('ch2');

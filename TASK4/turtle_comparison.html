@@ -158,8 +158,7 @@ function calcDonchian(data, entryP, exitP) {
   return {upper,lower};
 }
 
-function runTurtle(data, lot, s1e, s1x, s2e, s2x, atrP, riskPct, stopN, maxU, addN, slippage, accountInit) {
-  const n = data.length;
+function runTurtle(data, lot, s1e, s1x, s2e, s2x, atrP, riskPct, stopN, maxU, addN, slippage, accountInit) {  const n = data.length;
   const tr = calcTR(data);
   const atr = calcATR(tr, atrP);
   const s1 = calcDonchian(data, s1e, s1x);
@@ -171,99 +170,86 @@ function runTurtle(data, lot, s1e, s1x, s2e, s2x, atrP, riskPct, stopN, maxU, ad
   const startIdx = Math.max(s2e, atrP) + 1;
 
   function unitShares(nVal){const raw=Math.floor(cash*riskPct/(nVal*lot));return Math.max(raw*lot,lot);}
+  function totalUnits(){return holdings.reduce((s,h)=>s+h.u,0);}
+  const SINGLE_MAX = 4;
 
   for (let i=startIdx;i<n;i++) {
-    const today=data[i], nv=atr[i];
-    if (isNaN(nv)||nv<=0) { eq.push({d:today.d,e:cash,u:0}); continue; }
-
-    // Stops
-    const toRemove=[];
+    const td=data[i], nv=atr[i];
+    if (isNaN(nv)||nv<=0) { eq.push({d:td.d,e:cash,u:0}); continue; }
+    const rm=[];
     for(const h of holdings){
-      if(today.l < h.stop){
-        const px=h.stop; cash+=px*h.shares;
-        pos.push({sys:h.sys,ed:today.d,ep:h.ep,en:h.en,exd:today.d,exp:px,xr:'STOP_LOSS',u:h.u,s:h.shares,pnl:(px-h.ep)*h.shares,r:((px-h.ep)/(h.en||1))});
-        sigs.push({d:today.d,sys:h.sys,type:'STOP',px});
-        if(h.sys==='S1') lastS1pnl=(px-h.ep)*h.shares;
-        toRemove.push(h);
+      if(td.l < h.stop){
+        cash+=h.stop*h.shares; const avg=h.cost/h.shares;
+        pos.push({sys:h.sys,ed:h.entry_date,ep:avg,en:h.en,exd:td.d,exp:h.stop,xr:'STOP_LOSS',u:h.u,s:h.shares,pnl:(h.stop-avg)*h.shares,r:((h.stop-avg)/(h.en||1))});
+        sigs.push({d:td.d,sys:h.sys,type:'STOP',px:h.stop});
+        if(h.sys==='S1') lastS1pnl=(h.stop-avg)*h.shares;
+        rm.push(h);
       }
     }
-    holdings=holdings.filter(h=>!toRemove.includes(h));
-
-    // S2 exit
-    if(!isNaN(s2.lower[i]) && today.c < s2.lower[i]){
-      for(const h of holdings.filter(h=>h.sys==='S2')){
-        const px=today.o*(1-slippage); cash+=px*h.shares;
-        pos.push({sys:'S2',ed:today.d,ep:h.ep,en:h.en,exd:today.d,exp:px,xr:'TRAILING',u:h.u,s:h.shares,pnl:(px-h.ep)*h.shares,r:((px-h.ep)/(h.en||1))});
-        sigs.push({d:today.d,sys:'S2',type:'SELL',px});
-        holdings=holdings.filter(x=>x!==h);
+    holdings=holdings.filter(h=>!rm.includes(h));
+    [{sys:'S2',low:s2.lower,lbl:'TRAIL_S2'},{sys:'S1',low:s1.lower,lbl:'TRAIL_S1'}].forEach(({sys,low,lbl})=>{
+      if(!isNaN(low[i]) && td.c < low[i]){
+        for(const h of [...holdings]){
+          if(h.sys!==sys) continue;
+          const px=data[Math.min(i+1,n-1)].o*(1-slippage); cash+=px*h.shares; const avg=h.cost/h.shares;
+          pos.push({sys,ed:h.entry_date,ep:avg,en:h.en,exd:data[Math.min(i+1,n-1)].d,exp:px,xr:lbl,u:h.u,s:h.shares,pnl:(px-avg)*h.shares,r:((px-avg)/(h.en||1))});
+          sigs.push({d:data[Math.min(i+1,n-1)].d,sys,type:'SELL',px});
+          if(sys==='S1') lastS1pnl=(px-avg)*h.shares;
+          holdings=holdings.filter(x=>x!==h);
+        }
       }
-    }
-    // S1 exit
-    if(!isNaN(s1.lower[i]) && today.c < s1.lower[i]){
-      for(const h of holdings.filter(h=>h.sys==='S1')){
-        const px=today.o*(1-slippage); cash+=px*h.shares;
-        pos.push({sys:'S1',ed:today.d,ep:h.ep,en:h.en,exd:today.d,exp:px,xr:'TRAILING',u:h.u,s:h.shares,pnl:(px-h.ep)*h.shares,r:((px-h.ep)/(h.en||1))});
-        sigs.push({d:today.d,sys:'S1',type:'SELL',px});
-        lastS1pnl=(px-h.ep)*h.shares;
-        holdings=holdings.filter(x=>x!==h);
-      }
-    }
-
-    // S2 entry
-    if(!isNaN(s2.upper[i]) && today.c > s2.upper[i] && !holdings.some(h=>h.sys==='S2')){
+    });
+    if(!isNaN(s2.upper[i]) && td.c > s2.upper[i] && !holdings.some(h=>h.sys==='S2') && totalUnits() < SINGLE_MAX){
       if(i+1<n){
         const px=data[i+1].o*(1+slippage), us=unitShares(nv);
         if(us>0 && px*us<=cash){
           cash-=px*us;
-          holdings.push({sys:'S2',ep:px,en:nv,u:1,shares:us,stop:px-stopN*nv,addP:[px]});
-          sigs.push({d:today.d,sys:'S2',type:'BUY',px,u:1});
+          holdings.push({sys:'S2',entry_date:data[i+1].d,ep:px,en:nv,u:1,shares:us,cost:px*us,stop:px-stopN*nv,addP:[px]});
+          sigs.push({d:data[i+1].d,sys:'S2',type:'BUY',px,u:1});
         }
       }
     }
-    // S1 entry
-    if(!isNaN(s1.upper[i]) && today.c > s1.upper[i] && !holdings.some(h=>h.sys==='S1') && lastS1pnl>=0){
+    if(!isNaN(s1.upper[i]) && td.c > s1.upper[i] && !holdings.some(h=>h.sys==='S1') && lastS1pnl>=0 && totalUnits() < SINGLE_MAX){
       if(i+1<n){
         const px=data[i+1].o*(1+slippage), us=unitShares(nv);
         if(us>0 && px*us<=cash){
           cash-=px*us;
-          holdings.push({sys:'S1',ep:px,en:nv,u:1,shares:us,stop:px-stopN*nv,addP:[px]});
-          sigs.push({d:today.d,sys:'S1',type:'BUY',px,u:1});
+          holdings.push({sys:'S1',entry_date:data[i+1].d,ep:px,en:nv,u:1,shares:us,cost:px*us,stop:px-stopN*nv,addP:[px]});
+          sigs.push({d:data[i+1].d,sys:'S1',type:'BUY',px,u:1});
         }
       }
     }
-
-    // Pyramiding
     for(const h of holdings){
-      if(h.u>=maxU||i+1>=n) continue;
-      const needed = h.addP[h.addP.length-1]+addN*h.en;
-      if(today.c >= needed){
+      if(h.u>=maxU||i+1>=n||totalUnits()>=SINGLE_MAX) continue;
+      const needed=h.addP[h.addP.length-1]+addN*h.en;
+      if(td.c >= needed){
         const px=data[i+1].o*(1+slippage), us=unitShares(nv);
         if(us>0 && px*us<=cash){
-          cash-=px*us; h.u++; h.shares+=us; h.addP.push(px);
+          cash-=px*us; h.u++; h.shares+=us; h.cost+=px*us; h.addP.push(px);
           h.stop=Math.max(h.stop, px-stopN*nv);
-          sigs.push({d:today.d,sys:h.sys,type:'ADD',px,u:h.u});
+          sigs.push({d:data[i+1].d,sys:h.sys,type:'ADD',px,u:h.u});
         }
       }
     }
-
-    // Equity
-    let mkt=0; for(const h of holdings) mkt+=h.shares*today.c;
-    eq.push({d:today.d,e:cash+mkt,c:cash,u:holdings.reduce((s,h)=>s+h.u,0)});
+    let mkt=0; for(const h of holdings) mkt+=h.shares*td.c;
+    eq.push({d:td.d,e:cash+mkt,c:cash,u:holdings.reduce((s,h)=>s+h.u,0)});
+  }
+  for(const h of holdings){
+    const px=data[n-1].c; cash+=px*h.shares; const avg=h.cost/h.shares;
+    pos.push({sys:h.sys,ed:h.entry_date,ep:avg,en:h.en,exd:data[n-1].d,exp:px,xr:'END_OF_DATA',u:h.u,s:h.shares,pnl:(px-avg)*h.shares,r:((px-avg)/(h.en||1))});
   }
 
-  // Calc performance
-  const eqVals=eq.map(e=>e.e);
-  const rets=[]; for(let i=1;i<eqVals.length;i++) rets.push((eqVals[i]-eqVals[i-1])/eqVals[i-1]);
+  const eqVals=eq.map(e=>e.e), rets=[];
+  for(let i=1;i<eqVals.length;i++) rets.push((eqVals[i]-eqVals[i-1])/eqVals[i-1]);
   let peak=eqVals[0], maxDD=0;
-  for(const v of eqVals) { if(v>peak) peak=v; const dd=(v-peak)/peak; if(dd<maxDD) maxDD=dd; }
-  const totalRet = eqVals[eqVals.length-1]/eqVals[0]-1;
-  const annRet = Math.pow(1+totalRet, 252/eqVals.length)-1;
+  for(const v of eqVals){if(v>peak)peak=v;const dd=(v-peak)/peak;if(dd<maxDD)maxDD=dd;}
+  const totalRet=eqVals[eqVals.length-1]/eqVals[0]-1;
+  const annRet=Math.pow(1+totalRet,252/eqVals.length)-1;
   const avgRet=rets.reduce((s,r)=>s+r,0)/rets.length;
   const stdRet=Math.sqrt(rets.reduce((s,r)=>s+Math.pow(r-avgRet,2),0)/rets.length);
-  const sharpe = stdRet>0 ? (avgRet-0.02/252)/stdRet*Math.sqrt(252) : 0;
+  const sharpe=stdRet>0?(avgRet-0.02/252)/stdRet*Math.sqrt(252):0;
   const wins=pos.filter(p=>p.pnl>0), losses=pos.filter(p=>p.pnl<=0);
   const totalWin=wins.reduce((s,p)=>s+p.pnl,0), totalLoss=Math.abs(losses.reduce((s,p)=>s+p.pnl,0));
-
   return {
     equity:eq, positions:pos, signals:sigs,
     perf:{
