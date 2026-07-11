@@ -1,0 +1,341 @@
+{
+  "version": "1.0.0",
+  "strategy_id": "MA_CROSSOVER_V1",
+  "strategy_name": "双均线交叉趋势跟踪策略",
+  "strategy_name_en": "Dual Moving Average Crossover Trend-Following Strategy",
+  "created_at": "2026-07-07",
+  "last_updated": "2026-07-07",
+  "author": "BA工作坊",
+  "category": "trend_following",
+  "description": "基于两条不同周期的移动平均线的相对位置产生买卖信号。快线上穿慢线（金叉）做多，快线下穿慢线（死叉）平多/做空。属于经典的趋势跟踪策略，在单边市中表现优异，震荡市中易产生假信号。",
+
+  "philosophy": {
+    "core_idea": "价格 = 趋势 + 噪声。均线通过取平均值消除随机噪声，暴露出底层趋势。当短期均线穿越长期均线时，代表短期市场共识开始偏离中期持仓成本，趋势方向可能发生改变。",
+    "market_inefficiency": "趋势的持续性。市场存在动量效应——上涨的标的倾向于继续上涨，下跌的标的倾向于继续下跌。均线交叉策略捕捉的是趋势形成后、惯性延续的这一段利润。",
+    "key_insight": "均线交叉不是预测工具，而是确认工具。它不回答'接下来会怎样'，它回答'过去 N 天的平均价格已经发生了什么变化'。滞后性是它的成本，也是它避免假突破的过滤机制。"
+  },
+
+  "parameters": {
+    "moving_average": {
+      "type": {
+        "field": "ma_type",
+        "label": "均线类型",
+        "type": "enum",
+        "options": ["sma", "ema"],
+        "default": "ema",
+        "description": "SMA（简单移动平均）：等权重，所有价格贡献相同。EMA（指数移动平均）：近期权重更大，对趋势转向更敏感。",
+        "guidance": "实操中 EMA 更常用。原因：(1) 对转向更敏感，(2) 不会因旧数据掉出窗口而产生毛刺，(3) 数学性质更好（递归计算，无窗口效应）"
+      },
+      "periods": {
+        "fast": {
+          "field": "fast_period",
+          "label": "快线周期",
+          "type": "integer",
+          "default": 10,
+          "min": 3,
+          "max": 30,
+          "description": "短周期均线的计算窗口。周期越小，对价格变化越敏感，信号越密集；周期越大，信号越稀疏但越可靠。",
+          "presets": {
+            "aggressive": 5,
+            "balanced": 10,
+            "conservative": 20
+          }
+        },
+        "slow": {
+          "field": "slow_period",
+          "label": "慢线周期",
+          "type": "integer",
+          "default": 60,
+          "min": 20,
+          "max": 250,
+          "description": "长周期均线的计算窗口。代表中期持仓成本参考线。",
+          "presets": {
+            "aggressive": 20,
+            "balanced": 60,
+            "conservative": 120
+          }
+        }
+      },
+      "constraints": {
+        "fast_lt_slow": "fast_period 必须严格小于 slow_period",
+        "no_common_divisor": "fast_period 和 slow_period 不应有整数倍关系（如避免 10/30，推荐 10/27）",
+        "typical_ratio": "slow_period / fast_period 通常在 3~12 之间"
+      }
+    }
+  },
+
+  "signal_logic": {
+    "golden_cross": {
+      "name": "金叉买入",
+      "name_en": "Golden Cross / Bullish Crossover",
+      "condition": "MA_fast(t-1) ≤ MA_slow(t-1) AND MA_fast(t) > MA_slow(t)",
+      "action": "BUY",
+      "rationale": "快线从下方向上穿越慢线，代表短期价格动能超过中期趋势，多头趋势启动",
+      "risk": "假金叉：在横盘震荡中频繁出现，每次交叉后价格很快回落"
+    },
+    "death_cross": {
+      "name": "死叉卖出",
+      "name_en": "Death Cross / Bearish Crossover",
+      "condition": "MA_fast(t-1) ≥ MA_slow(t-1) AND MA_fast(t) < MA_slow(t)",
+      "action": "SELL",
+      "rationale": "快线从上方向下穿越慢线，代表短期价格动能跌破中期成本，空头趋势启动",
+      "risk": "假死叉：趋势中的正常回调导致的短暂下穿，价格随后恢复上涨"
+    },
+    "position_rules": {
+      "mode": "单向做多",
+      "states": {
+        "0": "空仓 — 快线 ≤ 慢线，不持有任何仓位",
+        "1": "满仓 — 快线 > 慢线，持有 100% 目标仓位"
+      },
+      "no_naked_short": true,
+      "note": "本 spec 仅定义做多逻辑。如需做空，需额外定义融券/期货做空规则"
+    },
+    "execution_timing": {
+      "rule": "T+1 执行",
+      "description": "信号在 t 日收盘后确认，实际交易在 t+1 日以开盘价执行。避免使用当日价格产生未来函数。",
+      "anti_lookahead": "所有信号计算使用 t 日的收盘数据，交易发生在 t+1 日开盘"
+    }
+  },
+
+  "backtest_config": {
+    "capital": {
+      "initial": 1000000,
+      "unit": "CNY",
+      "description": "初始资金 100 万元人民币"
+    },
+    "position_sizing": {
+      "method": "full_position",
+      "description": "有信号时全仓买入，无信号时空仓。不设分批建仓，不设加仓规则。",
+      "alternative": "如需分批建仓，需在本 spec 外扩展。海龟变体通常在突破 N 日最高价时首次建仓 1 个单位，每突破 0.5 ATR 加仓 0.5 单位，最多 4 个单位"
+    },
+    "transaction_costs": {
+      "commission": {
+        "rate": 0.0003,
+        "description": "佣金万三（双边收取），A 股券商标准费率",
+        "applied_on": "buy_and_sell"
+      },
+      "stamp_tax": {
+        "rate": 0.0005,
+        "description": "印花税万五，仅卖出时收取（A 股现行标准）",
+        "applied_on": "sell_only"
+      },
+      "slippage": {
+        "rate": 0.001,
+        "description": "滑点假设千分之一。每笔交易的实际成交价比信号触发价差千一，模拟市场冲击成本",
+        "applied_on": "buy_and_sell"
+      },
+      "total_cost_per_trade": "买入约 0.13%，卖出约 0.18%（佣金+滑点+印花税）",
+      "annual_cost_estimation": "假设年化换手率 200%（约 4 次完整交易），年化成本约 1.2% ~ 1.5%"
+    },
+    "benchmark": {
+      "type": "buy_and_hold",
+      "description": "买入持有策略（Buy & Hold）。从回测起始日以开盘价全仓买入，不进行任何交易，回测结束日以收盘价卖出。"
+    },
+    "data_requirements": {
+      "frequency": "daily",
+      "required_fields": ["trade_date", "open", "high", "low", "close"],
+      "recommended_adjustment": "前复权 (QFQ)",
+      "min_history_bars": "max(fast_period, slow_period) + 100",
+      "reason": "需要足够的历史数据来初始化均线计算。均线周期越长，需要的预热数据越多"
+    }
+  },
+
+  "risk_management": {
+    "max_drawdown_limit": {
+      "value": 0.25,
+      "description": "最大回撤 25% 触发强制停止。一旦策略净值从历史最高点回撤超过 25%，暂停交易并重新评估策略有效性",
+      "action": "halt_and_review"
+    },
+    "single_stock_limit": {
+      "value": 1.0,
+      "description": "本策略默认单票满仓，不设单票上限。如扩展为多票组合，建议单票上限不超过 25%"
+    },
+    "volatility_emergency": {
+      "trigger": "当日涨跌幅超过 ±10%（涨跌停板）",
+      "action": "不执行新开仓信号，已有仓位正常平仓",
+      "reason": "极端波动日信号可靠性低，且可能存在流动性问题"
+    },
+    "consecutive_loss_limit": {
+      "count": 5,
+      "description": "连续亏损 5 次后暂停 10 个交易日，重新评估参数是否适应当前市场环境"
+    }
+  },
+
+  "expected_behavior": {
+    "trending_up": {
+      "regime": "单边上涨（牛市）",
+      "expected_performance": "强于基准",
+      "reason": "金叉后持续持有多头，捕捉完整的上涨波段。趋势越持久，超额收益越大",
+      "typical_sharpe": "1.0 ~ 2.5",
+      "typical_win_rate": "35% ~ 50%"
+    },
+    "trending_down": {
+      "regime": "单边下跌（熊市）",
+      "expected_performance": "与基准持平或略优",
+      "reason": "死叉后空仓，避免持续下跌。但死叉信号存在滞后，已回吐部分利润。若出现反弹又回落，可能产生亏损交易",
+      "typical_sharpe": "0.5 ~ 1.5"
+    },
+    "sideways": {
+      "regime": "横盘震荡（猴市）",
+      "expected_performance": "弱于基准",
+      "reason": "价格在区间内反复穿越均线，产生大量假金叉/假死叉（鞭梢效应 Whipsaw）。每次交叉都产生交易成本，累积亏损吞噬本金",
+      "typical_sharpe": "-1.0 ~ 0.5",
+      "typical_win_rate": "20% ~ 35%",
+      "mitigation": "可增加趋势过滤层（如 ADX > 25 时允许交易，否则空仓）来减少震荡市中的交易次数"
+    }
+  },
+
+  "common_variants": {
+    "triple_ma": {
+      "name": "三均线系统",
+      "description": "增加一条中线（如 MA20），形成快/中/慢三层。快中金叉为预警，中慢金叉为确认。减少假信号但信号更滞后",
+      "params": "MA5 / MA20 / MA60"
+    },
+    "ma_cross_with_filter": {
+      "name": "均线交叉 + 趋势过滤",
+      "description": "金叉信号需要同时满足价格 > MA200（长期均线确认多头趋势），过滤掉逆势做多的假信号",
+      "params": "MA10 / MA60，额外条件 price > MA200"
+    },
+    "ma_cross_with_volume": {
+      "name": "均线交叉 + 成交量确认",
+      "description": "金叉日成交量需超过 20 日均量的 1.5 倍，确保有资金推动而非无量假突破",
+      "params": "MA10 / MA60，额外条件 vol > SMA(vol, 20) × 1.5"
+    },
+    "turtle_channel": {
+      "name": "海龟通道突破（均线的极端形式）",
+      "description": "用 Donchian 通道代替均线。快线 = 20 日最高价，慢线 = 20 日最低价。本质上是均线交叉的思想扩展到价格极值",
+      "params": "upper = max(high, 20), lower = min(low, 20)"
+    }
+  },
+
+  "validation_checklist": {
+    "data_integrity": [
+      "价格数据无缺失行（缺失日需填充前收或标记为停牌）",
+      "复权已正确应用（前复权价格无跳空，除权除息后价格连续性确认）",
+      "停牌日的处理规则已明确（跳过 or 延续前一日仓位）",
+      "涨跌停日不可交易的处理规则已明确"
+    ],
+    "signal_correctness": [
+      "金叉定义：MA_fast 从 ≤ 变为 > MA_slow",
+      "死叉定义：MA_fast 从 ≥ 变为 < MA_slow",
+      "不允许同时产生金叉和死叉（互斥性检查）",
+      "首根 K 线不产生信号（均线需要预热期）",
+      "交叉日仅为信号确认日，实际交易在 T+1"
+    ],
+    "cost_accounting": [
+      "佣金在买入和卖出时各收取一次",
+      "印花税仅在卖出时收取（A 股规则）",
+      "滑点在每次交易时按成交金额比例扣除",
+      "现金余额不能为负（仓位 × 价格不能超过可用资金）"
+    ],
+    "metric_calculation": [
+      "总收益率 = (期末净值 / 期初净值) - 1",
+      "年化收益率 = (1 + 总收益) ^ (252 / 交易日数) - 1",
+      "年化夏普 = sqrt(252) × (日超额收益均值 / 日超额收益标准差)",
+      "最大回撤 = min(每日(净值 / 累计最高净值 - 1))",
+      "Calmar 比率 = 年化收益率 / |最大回撤|",
+      "胜率 = 盈利交易笔数 / 总交易笔数",
+      "盈亏比 = 平均盈利金额 / 平均亏损金额（取绝对值）"
+    ]
+  },
+
+  "parameter_sensitivity": {
+    "description": "参数敏感性分析用于评估策略是否对特定参数值过度依赖。如果小幅调整参数导致收益率剧烈变化，说明策略可能存在过拟合。",
+    "test_grid": {
+      "fast_period": [5, 10, 15, 20],
+      "slow_period": [30, 60, 90, 120],
+      "ma_type": ["ema", "sma"]
+    },
+    "pass_criteria": "在至少 60% 的参数组合中，策略年化夏普 > 0（即参数鲁棒性过关）",
+    "fail_action": "如果最优参数组合 20% 以内的变动导致夏普下降超过 50%，标记为参数敏感，需人工审查"
+  },
+
+  "output_spec": {
+    "report_format": "HTML",
+    "report_template": "使用 ECharts 交互式图表，包含：(1) 价格+均线+信号标注图 (2) 资金曲线图 (3) 绩效指标卡片",
+    "required_charts": [
+      {
+        "name": "price_and_signals",
+        "title": "价格 & 均线 & 信号",
+        "elements": ["收盘价曲线", "快线", "慢线", "金叉标记（绿色三角）", "死叉标记（红色倒三角）"]
+      },
+      {
+        "name": "equity_curve",
+        "title": "资金曲线",
+        "elements": ["策略净值曲线", "基准净值曲线（Buy & Hold）"]
+      },
+      {
+        "name": "drawdown_chart",
+        "title": "回撤曲线（可选）",
+        "elements": ["策略回撤百分比", "基准回撤百分比"]
+      }
+    ],
+    "required_metrics": [
+      "策略总收益率",
+      "基准总收益率",
+      "年化收益率",
+      "年化夏普比率",
+      "最大回撤",
+      "Calmar 比率",
+      "胜率",
+      "盈亏比",
+      "总交易次数"
+    ],
+    "csv_output": {
+      "signal_log": "逐日信号记录，包含：trade_date, price, ma_fast, ma_slow, signal, cross, position, strategy_return, equity",
+      "trade_log": "逐笔交易记录，包含：entry_date, entry_price, exit_date, exit_price, return, holding_days"
+    }
+  },
+
+  "limitations": {
+    "inherent": [
+      "均线交叉的滞后性不可消除——信号永远在趋势已经启动后才会出现",
+      "在震荡市中无法避免鞭梢效应（Whipsaw）——这是趋势跟踪策略的结构性亏损",
+      "无法预测趋势的持续时间——可能在趋势刚结束时买入",
+      "对参数选择敏感——不同周期组合在同一个品种上表现差异巨大"
+    ],
+    "practical": [
+      "滑点和冲击成本假设（千一）在极端行情中可能严重低估",
+      "跌停板时卖出信号无法执行，需特殊处理",
+      "T+1 制度下当日信号次日执行，存在隔夜跳空风险",
+      "本 spec 假设无限流动性，实际大资金运作需考虑市场深度"
+    ],
+    "scope": [
+      "仅针对 A 股单向做多场景",
+      "不涉及多品种组合、对冲、期权等复杂场景",
+      "不包含基本面、资金面、情绪面等外部信号",
+      "回测结果不代表实盘表现，需经实盘小资金验证"
+    ]
+  },
+
+  "extension_points": {
+    "description": "本 spec 为最小可行版本（MVP）。以下扩展方向可在后续版本中迭代：",
+    "planned": [
+      {
+        "feature": "趋势过滤层",
+        "description": "加入 ADX 或长期均线作为趋势确认，减少震荡市中的假信号",
+        "priority": "high"
+      },
+      {
+        "feature": "动态仓位管理",
+        "description": "用 ATR 或凯利公式替代满仓进出，实现风险约束下的仓位优化",
+        "priority": "high"
+      },
+      {
+        "feature": "多品种回测",
+        "description": "支持在 5+ 个品种上同时回测，输出横向对比报告",
+        "priority": "medium"
+      },
+      {
+        "feature": "参数自动优化",
+        "description": "网格搜索 + 样本外验证，自动寻找最优快慢周期组合",
+        "priority": "medium"
+      },
+      {
+        "feature": "港股/美股适配",
+        "description": "扩展支持港股（T+0，无涨跌停）和美股（T+2 结算）的交易规则",
+        "priority": "low"
+      }
+    ]
+  }
+}

@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>量化交易策略四大要素详解</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-secondary: #f8f9fa;
+    --text: #1a1a2e;
+    --text-secondary: #555;
+    --border: #e0e0e0;
+    --purple: #534AB7;
+    --green: #1D9E75;
+    --blue: #378ADD;
+    --coral: #D85A30;
+    --purple-light: #EEEDFE;
+    --green-light: #E1F5EE;
+    --blue-light: #E6F1FB;
+    --coral-light: #FAECE7;
+    --radius: 10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.8;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+  h2 { font-size: 22px; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 17px; font-weight: 600; margin: 32px 0 12px; color: #333; }
+  h4 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+
+  p { margin: 12px 0; color: var(--text-secondary); }
+
+  .subtitle { font-size: 15px; color: #888; margin-bottom: 32px; }
+
+  .card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    margin: 16px 0;
+  }
+
+  .card.purple { border-left: 4px solid var(--purple); }
+  .card.green  { border-left: 4px solid var(--green); }
+  .card.blue   { border-left: 4px solid var(--blue); }
+  .card.coral  { border-left: 4px solid var(--coral); }
+
+  .formula {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+    text-align: center;
+  }
+
+  .code-block {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+    font-family: "Fira Code", "JetBrains Mono", "Consolas", monospace;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .code-block .kw { color: #cba6f7; }
+  .code-block .fn { color: #89b4fa; }
+  .code-block .str { color: #a6e3a1; }
+  .code-block .cm { color: #6c7086; font-style: italic; }
+  .code-block .num { color: #fab387; }
+
+  .highlight-box {
+    background: #FFFDE7;
+    border: 1px solid #FFE082;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+
+  .nav-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 24px 0;
+    position: sticky;
+    top: 12px;
+    background: var(--bg);
+    padding: 8px 0;
+    z-index: 10;
+  }
+
+  .nav-pills a {
+    text-decoration: none;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    transition: all 0.15s;
+  }
+
+  .nav-pills a:hover { background: var(--bg-secondary); }
+  .nav-pills a.purple:hover { color: var(--purple); border-color: var(--purple); }
+  .nav-pills a.green:hover  { color: var(--green);  border-color: var(--green); }
+  .nav-pills a.blue:hover   { color: var(--blue);   border-color: var(--blue); }
+  .nav-pills a.coral:hover  { color: var(--coral);  border-color: var(--coral); }
+
+  .chart-container {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin: 16px 0;
+  }
+
+  .chart-container canvas { max-height: 320px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+
+  th {
+    background: var(--bg-secondary);
+    text-align: left;
+    padding: 10px 14px;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+  }
+
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  tr:hover td { background: #fafafa; }
+
+  ul, ol { margin: 12px 0; padding-left: 24px; color: var(--text-secondary); }
+  li { margin: 6px 0; }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-right: 4px;
+  }
+  .tag.math { background: var(--blue-light); color: var(--blue); }
+  .tag.code { background: var(--purple-light); color: var(--purple); }
+  .tag.risk { background: var(--coral-light); color: var(--coral); }
+  .tag.exec { background: var(--green-light); color: var(--green); }
+
+  @media (max-width: 768px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    body { padding: 20px 14px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>量化交易策略四大要素详解</h1>
+<p class="subtitle">进场 · 出场 · 仓位 · 风控 — 概念、公式、代码</p>
+
+<div class="nav-pills">
+  <a href="#entry" class="purple">进场 Entry</a>
+  <a href="#exit" class="green">出场 Exit</a>
+  <a href="#position" class="blue">仓位 Position</a>
+  <a href="#risk" class="coral">风控 Risk</a>
+</div>
+
+<hr style="border:none; border-top:1px solid var(--border); margin: 8px 0 32px;">
+
+<!-- ============================== -->
+<!-- ELEMENT 1: ENTRY -->
+<!-- ============================== -->
+<h2 id="entry">一、进场 Entry — 何时买入？</h2>
+
+<p>进场规则决定了策略"开仓"的时机。一个好的进场信号应该具备<strong>可量化、可回溯、低延迟</strong>三个特征。以下是最常用的五类进场指标。</p>
+
+<!-- 1.1 均线交叉 -->
+<div class="card purple">
+  <h3>1.1 均线交叉 MA Crossover</h3>
+  <p><strong>概念：</strong>利用短周期均线与长周期均线的相对位置判断趋势方向。短线上穿长线为金叉（买入），下穿为死叉（卖出）。这是最经典的趋势跟踪信号。</p>
+
+  <div class="formula">
+    \[
+    \text{SMA}_n(t) = \frac{1}{n}\sum_{i=0}^{n-1} P_{t-i}
+    \]
+    \[
+    \text{EMA}_n(t) = \alpha \cdot P_t + (1-\alpha) \cdot \text{EMA}_n(t-1), \quad \alpha = \frac{2}{n+1}
+    \]
+    \[
+    \text{Signal} = \begin{cases} +1\ (\text{金叉}), & \text{MA}_{\text{fast}}(t) > \text{MA}_{\text{slow}}(t) \text{ 且昨日 } \le \\ -1\ (\text{死叉}), & \text{MA}_{\text{fast}}(t) < \text{MA}_{\text{slow}}(t) \text{ 且昨日 } \ge \end{cases}
+    \]
+  </div>
+
+  <p><span class="tag math">原理</span> EMA 对近期价格赋予更高权重，比 SMA 对趋势变化更敏感。常用组合：5/20（短线）、10/60（中线）、20/120（长线）。</p>
+
+  <div class="code-block">
+<span class="cm"># 双均线交叉信号</span>
+<span class="kw">import</span> pandas <span class="kw">as</span> pd
+
+df[<span class="str">'ma_fast'</span>] = df[<span class="str">'close'</span>].rolling(<span class="num">10</span>).mean()
+df[<span class="str">'ma_slow'</span>] = df[<span class="str">'close'</span>].rolling(<span class="num">60</span>).mean()
+df[<span class="str">'signal'</span>] = <span class="num">0</span>
+df.loc[df[<span class="str">'ma_fast'</span>] > df[<span class="str">'ma_slow'</span>], <span class="str">'signal'</span>] = <span class="num">1</span>
+df[<span class="str">'cross'</span>] = df[<span class="str">'signal'</span>].diff()  <span class="cm"># +1 金叉, -1 死叉</span>
+  </div>
+</div>
+
+<!-- 1.2 MACD -->
+<div class="card purple">
+  <h3>1.2 MACD 指数平滑异同移动平均线</h3>
+  <p><strong>概念：</strong>MACD 通过快慢 EMA 的差值（DIF）与信号线（DEA）的交叉，以及柱状图的变化，同时捕捉趋势方向和强度。</p>
+
+  <div class="formula">
+    \[
+    \text{DIF} = \text{EMA}_{12} - \text{EMA}_{26}
+    \]
+    \[
+    \text{DEA} = \text{EMA}_9(\text{DIF})
+    \]
+    \[
+    \text{MACD柱} = 2 \times (\text{DIF} - \text{DEA})
+    \]
+  </div>
+
+  <p><span class="tag math">原理</span> DIF 上穿 DEA 为金叉（零轴上更强），DIF 下穿为死叉。柱状图由绿转红（负转正）预示多头启动。背离是重要信号：价格新高但 DIF 不创新高 = 顶背离（看跌）。</p>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">calc_macd</span>(close, fast=<span class="num">12</span>, slow=<span class="num">26</span>, signal=<span class="num">9</span>):
+    ema_fast = close.ewm(span=fast, adjust=<span class="kw">False</span>).mean()
+    ema_slow = close.ewm(span=slow, adjust=<span class="kw">False</span>).mean()
+    dif = ema_fast - ema_slow
+    dea = dif.ewm(span=signal, adjust=<span class="kw">False</span>).mean()
+    macd_bar = <span class="num">2</span> * (dif - dea)
+    <span class="kw">return</span> dif, dea, macd_bar
+  </div>
+</div>
+
+<!-- 1.3 RSI -->
+<div class="card purple">
+  <h3>1.3 RSI 相对强弱指标</h3>
+  <p><strong>概念：</strong>RSI 衡量价格变动速度和幅度，值域 0–100。用于判断超买超卖和趋势反转。</p>
+
+  <div class="formula">
+    \[
+    \text{RS} = \frac{\text{AvgGain}_n}{\text{AvgLoss}_n}
+    \]
+    \[
+    \text{RSI} = 100 - \frac{100}{1 + \text{RS}}
+    \]
+  </div>
+
+  <p><span class="tag math">原理</span> 传统阈值：RSI > 70 超买（考虑卖出），RSI < 30 超卖（考虑买入）。Wilder 原始周期 n=14。强趋势中可以用 80/20 或 90/10。RSI 背离比阈值更可靠。</p>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">calc_rsi</span>(close, period=<span class="num">14</span>):
+    delta = close.diff()
+    gain = delta.clip(lower=<span class="num">0</span>)
+    loss = -delta.clip(upper=<span class="num">0</span>)
+    avg_gain = gain.ewm(alpha=<span class="num">1</span>/period, adjust=<span class="kw">False</span>).mean()
+    avg_loss = loss.ewm(alpha=<span class="num">1</span>/period, adjust=<span class="kw">False</span>).mean()
+    rs = avg_gain / avg_loss
+    rsi = <span class="num">100</span> - (<span class="num">100</span> / (<span class="num">1</span> + rs))
+    <span class="kw">return</span> rsi
+  </div>
+</div>
+
+<!-- 1.4 布林带 -->
+<div class="card purple">
+  <h3>1.4 布林带 Bollinger Bands</h3>
+  <p><strong>概念：</strong>以均线为中心，上下各偏移 k 倍标准差形成通道。价格触及边界时预示回归或突破。</p>
+
+  <div class="formula">
+    \[
+    \text{Middle} = \text{SMA}_n
+    \]
+    \[
+    \text{Upper} = \text{Middle} + k \cdot \sigma_n
+    \]
+    \[
+    \text{Lower} = \text{Middle} - k \cdot \sigma_n
+    \]
+    \[
+    \%b = \frac{P - \text{Lower}}{\text{Upper} - \text{Lower}}
+    \]
+  </div>
+
+  <p><span class="tag math">原理</span> 默认 n=20, k=2。价格触及下轨（%b < 0）可能超卖反弹，触及上轨（%b > 1）可能超买回调。带宽收缩（Squeeze）预示大波动即将来临。带宽 = (Upper-Lower)/Middle。</p>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">calc_bollinger</span>(close, period=<span class="num">20</span>, k=<span class="num">2</span>):
+    middle = close.rolling(period).mean()
+    std = close.rolling(period).std()
+    upper = middle + k * std
+    lower = middle - k * std
+    pct_b = (close - lower) / (upper - lower)
+    bandwidth = (upper - lower) / middle
+    <span class="kw">return</span> middle, upper, lower, pct_b, bandwidth
+  </div>
+</div>
+
+<!-- 1.5 通道突破 -->
+<div class="card purple">
+  <h3>1.5 通道突破 Channel Breakout</h3>
+  <p><strong>概念：</strong>价格突破过去 N 日的最高价即买入，跌破最低价即卖出。这是海龟交易法的核心进场逻辑。</p>
+
+  <div class="formula">
+    \[
+    \text{Signal} = \begin{cases} \text{BUY}, & P_t > \max(P_{t-1}, \dots, P_{t-n}) \\ \text{SELL}, & P_t < \min(P_{t-1}, \dots, P_{t-n}) \end{cases}
+    \]
+  </div>
+
+  <p><span class="tag math">原理</span> Donchian 通道用 n=20（短线）或 n=55（中长线）。海龟系统加仓规则：价格每突破 0.5 ATR 加仓一次，最多 4 次。突破入场是最纯粹的动量策略。</p>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">donchian_signal</span>(high, low, close, period=<span class="num">20</span>):
+    upper = high.rolling(period).max().shift(<span class="num">1</span>)
+    lower = low.rolling(period).min().shift(<span class="num">1</span>)
+    buy = close > upper
+    sell = close < lower
+    <span class="kw">return</span> buy, sell
+  </div>
+</div>
+
+<!-- ============================== -->
+<!-- ELEMENT 2: EXIT -->
+<!-- ============================== -->
+<h2 id="exit">二、出场 Exit — 何时卖出？</h2>
+
+<p>出场是策略中最被低估的环节——它直接决定了盈亏比。出场分为被动（止损/止盈触发）和主动（信号反转/时间到期）两类。</p>
+
+<div class="grid-2">
+  <!-- 2.1 固定止盈止损 -->
+  <div class="card green">
+    <h3>2.1 固定止盈/止损</h3>
+    <p>以入场价为基准，设定固定百分比或绝对金额的出场点。</p>
+    <div class="formula">
+      \[
+      P_{\text{SL}} = P_{\text{entry}} \times (1 - r_{\text{stop}})
+      \]
+      \[
+      P_{\text{TP}} = P_{\text{entry}} \times (1 + r_{\text{target}})
+      \]
+    </div>
+    <p><span class="tag exec">关键</span> 盈亏比至少 ≥ 2:1。常见设置：止损 -5\%，止盈 +10\% 至 +15\%。</p>
+  </div>
+
+  <!-- 2.2 ATR止损 -->
+  <div class="card green">
+    <h3>2.2 ATR 动态止损</h3>
+    <p>用 ATR（平均真实波幅）衡量市场波动，适应不同波动环境。</p>
+    <div class="formula">
+      \[
+      \text{TR} = \max(H-L,\ |H-C_{t-1}|,\ |L-C_{t-1}|)
+      \]
+      \[
+      \text{ATR}_n = \text{EMA}_n(\text{TR})
+      \]
+      \[
+      P_{\text{SL}} = P_{\text{entry}} - k \cdot \text{ATR}
+      \]
+    </div>
+    <p><span class="tag exec">关键</span> k 通常取 2–3。波大止损宽、波小止损窄，比固定百分比更合理。</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- 2.3 移动止损 -->
+  <div class="card green">
+    <h3>2.3 移动止损 Trailing Stop</h3>
+    <p>止损线随价格向有利方向移动，回撤到一定程度触发出场。</p>
+    <div class="formula">
+      \[
+      \text{Stop}_t = \max(\text{Stop}_{t-1},\ P_t \times (1 - r_{\text{trail}}))
+      \]
+    </div>
+    <p><span class="tag exec">关键</span> 跟踪比例通常 5\%–15\%。锁利的同时允许正常回调。是趋势跟踪的标准配置。</p>
+  </div>
+
+  <!-- 2.4 信号反转 -->
+  <div class="card green">
+    <h3>2.4 信号反转 + 时间退出</h3>
+    <p><strong>信号反转：</strong>出现反向进场信号时平仓（如金叉买入 → 死叉卖出）。</p>
+    <p><strong>时间退出：</strong>持仓超过 N 天强制平仓，防止资金长期占用低效持仓。</p>
+    <div class="formula">
+      \[
+      \text{Exit} = \begin{cases} \text{True}, & \text{signal} = -1 \text{ 或 } t - t_{\text{entry}} > N_{\text{max}} \end{cases}
+      \]
+    </div>
+  </div>
+</div>
+
+<!-- ============================== -->
+<!-- ELEMENT 3: POSITION -->
+<!-- ============================== -->
+<h2 id="position">三、仓位 Position — 买多少？</h2>
+
+<p>仓位管理决定资金效率和风险暴露。同一信号，仓位不同，最终收益可以差 5–10 倍。核心思想：<strong>胜率高多下注，风险大多下注的反面——风险大少下注</strong>。</p>
+
+<!-- 3.1 凯利公式 -->
+<div class="card blue">
+  <h3>3.1 凯利公式 Kelly Criterion</h3>
+  <p><strong>概念：</strong>已知胜率和盈亏比，计算最优下注比例，使长期资本增长率最大化。</p>
+
+  <div class="formula">
+    \[
+    f^* = \frac{bp - q}{b} = p - \frac{q}{b}
+    \]
+    \[
+    \text{其中: } p = \text{胜率},\ q = 1-p,\ b = \text{盈亏比（净盈利/净亏损）}
+    \]
+  </div>
+
+  <p><span class="tag math">原理</span> 如果 p=0.5, b=2，则 f* = 0.25，即每次下注 25\% 资金最优。实际交易中常使用<strong>半凯利</strong>（f*/2）以降低回撤，或<strong>分数凯利</strong>因胜率和盈亏比本质上是估计值。</p>
+
+  <div class="highlight-box">
+    <strong>案例：</strong>某策略胜率 45\%，平均盈利 8\%，平均亏损 3\%，则 b = 8/3 ≈ 2.67，f* = 0.45 - 0.55/2.67 ≈ 0.244。若本金 100 万，单笔下注 24.4 万。半凯利则为 12.2 万。
+  </div>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">kelly</span>(win_rate, avg_win, avg_loss):
+    b = avg_win / avg_loss
+    f = win_rate - (<span class="num">1</span> - win_rate) / b
+    <span class="kw">return</span> max(<span class="num">0</span>, f)  <span class="cm"># 负值表示不应下注</span>
+
+<span class="cm"># 示例: 胜率 45%, 平均盈亏比 2.67</span>
+f = kelly(<span class="num">0.45</span>, <span class="num">0.08</span>, <span class="num">0.03</span>)  <span class="cm"># 结果: 0.244</span>
+  </div>
+</div>
+
+<!-- 3.2 风险平价 -->
+<div class="card blue">
+  <h3>3.2 风险平价 Risk Parity</h3>
+  <p><strong>概念：</strong>让组合中每个资产贡献相等的风险（波动率），而非相等金额。风险高的资产分配更少资金。</p>
+
+  <div class="formula">
+    \[
+    w_i \propto \frac{1}{\sigma_i}
+    \]
+    \[
+    w_i = \frac{1/\sigma_i}{\sum_{j} 1/\sigma_j}
+    \]
+  </div>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">risk_parity_weights</span>(returns):
+    vols = returns.std()  <span class="cm"># 每只股票的年化波动率</span>
+    inv_vols = <span class="num">1.0</span> / vols
+    weights = inv_vols / inv_vols.sum()
+    <span class="kw">return</span> weights
+  </div>
+</div>
+
+<!-- 3.3 波动率目标 -->
+<div class="card blue">
+  <h3>3.3 波动率目标仓位</h3>
+  <p><strong>概念：</strong>设定目标波动率（如年化 20\%），根据当前市场实际波动动态调整仓位。波动高 → 减仓，波动低 → 加仓。</p>
+
+  <div class="formula">
+    \[
+    w = \min\left(1, \frac{\sigma_{\text{target}}}{\sigma_{\text{realized}}}\right)
+    \]
+  </div>
+
+  <p><span class="tag math">原理</span> 假设目标年化波动率 20\%，当前市场实现波动率 40\%，则仓位降至 50\%。这天然实现了"高波减仓、低波加仓"。</p>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">vol_target_position</span>(returns, target_vol=<span class="num">0.20</span>, window=<span class="num">60</span>):
+    realized_vol = returns.rolling(window).std() * np.sqrt(<span class="num">252</span>)
+    weight = np.clip(target_vol / realized_vol, <span class="num">0</span>, <span class="num">1.5</span>)
+    <span class="kw">return</span> weight
+  </div>
+</div>
+
+<!-- ============================== -->
+<!-- ELEMENT 4: RISK -->
+<!-- ============================== -->
+<h2 id="risk">四、风控 Risk — 亏得起多少？</h2>
+
+<p>风控不是策略的一部分——它是策略能存活的前提。好的风控回答三个问题：<strong>最多亏多少？亏的概率有多大？亏的时候多久能回来？</strong></p>
+
+<!-- 4.1 VaR -->
+<div class="card coral">
+  <h3>4.1 VaR 风险价值 & CVaR</h3>
+  <p><strong>概念：</strong>VaR 回答"在给定置信度下，未来 N 天最多亏多少"。CVaR（条件风险价值）则进一步回答"一旦突破 VaR，平均会亏多少"。</p>
+
+  <div class="formula">
+    \[
+    \text{VaR}_\alpha = -\inf\{ x : P(R \le x) \ge 1-\alpha \}
+    \]
+    \[
+    \text{CVaR}_\alpha = -\mathbb{E}[R \mid R \le -\text{VaR}_\alpha]
+    \]
+  </div>
+
+  <p><span class="tag risk">含义</span> 95\% 置信度下日 VaR = -2\% 表示：有 95\% 把握单日亏损不超过 2\%，即每 20 个交易日约有 1 天亏损超过 2\%。</p>
+
+  <div class="code-block">
+<span class="kw">def</span> <span class="fn">calc_var</span>(returns, confidence=<span class="num">0.95</span>):
+    var = np.percentile(returns, <span class="num">100</span> * (<span class="num">1</span> - confidence))
+    cvar = returns[returns <= var].mean()
+    <span class="kw">return</span> -var, -cvar  <span class="cm"># 返回正数表示亏损百分比</span>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- 4.2 最大回撤 -->
+  <div class="card coral">
+    <h3>4.2 最大回撤 Max Drawdown</h3>
+    <p><strong>概念：</strong>从历史净值最高点到随后最低点的最大跌幅，是衡量策略"最惨时刻"的核心指标。</p>
+    <div class="formula">
+      \[
+      \text{MDD} = \max_{t \in [0,T]} \left( \frac{\max_{s \in [0,t]} V_s - V_t}{\max_{s \in [0,t]} V_s} \right)
+      \]
+    </div>
+    <p><span class="tag risk">阈值</span> 机构通常设 MDD 硬止损线 15\%–25\%。MDD > 30\% 的策略需要极强的心理承受力和资金冗余。</p>
+    <div class="code-block">
+<span class="kw">def</span> <span class="fn">max_drawdown</span>(values):
+    peak = values.cummax()
+    dd = (values - peak) / peak
+    <span class="kw">return</span> dd.min()
+    </div>
+  </div>
+
+  <!-- 4.3 夏普比率 -->
+  <div class="card coral">
+    <h3>4.3 夏普比率 Sharpe Ratio</h3>
+    <p><strong>概念：</strong>衡量每承担单位风险获得的超额回报。是最通用的策略评价指标。</p>
+    <div class="formula">
+      \[
+      \text{Sharpe} = \frac{R_p - R_f}{\sigma_p}
+      \]
+      \[
+      \text{年化夏普} = \sqrt{252} \times \frac{\bar{r} - r_f}{\sigma_r}
+      \]
+    </div>
+    <p><span class="tag risk">基准</span> 夏普 > 1 算合格，> 2 优秀，> 3 极其罕见（需警惕过拟合）。纯粹 Beta 收益（大盘涨你也涨）的夏普通常 < 0.5。</p>
+    <div class="code-block">
+<span class="kw">def</span> <span class="fn">sharpe</span>(returns, rf=<span class="num">0.02</span>):
+    excess = returns - rf/<span class="num">252</span>
+    <span class="kw">return</span> np.sqrt(<span class="num">252</span>) * excess.mean() / returns.std()
+    </div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- 4.4 Calmar -->
+  <div class="card coral">
+    <h3>4.4 Calmar 比率</h3>
+    <p>年化收益率除以最大回撤（取绝对值）。修正夏普只关心波动率的问题——波动率不区分"向上的波动"和"向下的波动"。</p>
+    <div class="formula">
+      \[
+      \text{Calmar} = \frac{\text{年化收益率}}{|\text{MDD}|}
+      \]
+    </div>
+    <p><span class="tag risk">基准</span> Calmar > 0.5 可接受，> 1 良好。趋势跟踪策略的 Calmar 通常比均值回归策略高。</p>
+  </div>
+
+  <!-- 4.5 回撤修复 -->
+  <div class="card coral">
+    <h3>4.5 分散化 & 相关性控制</h3>
+    <p><strong>单票上限：</strong>单一标的仓位不超过总资金的 N\%（通常 10\%–25\%）。</p>
+    <p><strong>行业上限：</strong>同行业暴露不超过 30\%–40\%。</p>
+    <p><strong>相关性矩阵：</strong>定期检查持仓间的相关系数，避免买一堆高度同涨同跌的东西（表面分散 → 实质集中）。</p>
+    <div class="formula">
+      \[
+      \rho_{ij} = \frac{\text{Cov}(R_i, R_j)}{\sigma_i \sigma_j}
+      \]
+    </div>
+  </div>
+</div>
+
+<!-- ============================== -->
+<!-- SUMMARY -->
+<!-- ============================== -->
+<h2 id="summary">小结：四个要素的关系</h2>
+
+<div class="highlight-box" style="background: #f5f3ff; border-color: #d4d0f0;">
+  <p style="margin:0;">
+    <strong>进场决定机会多少，出场决定盈亏比，仓位决定资金效率，风控决定能不能活到下一轮。</strong><br><br>
+    一个完整的量化策略是这四个要素的有机组合。回测时不要只盯着总收益率——要看夏普、最大回撤、Calmar 和胜率/盈亏比的拆解。每一个要素都可以独立优化、对比替换，这正是量化交易相比主观交易最大的优势。
+  </p>
+</div>
+
+<h3>参数优化速查表</h3>
+<table>
+  <tr><th>要素</th><th>可调参数</th><th>调参方向</th><th>风险</th></tr>
+  <tr><td>进场</td><td>均线周期、RSI 阈值、通道长度</td><td>周期越短 → 信号越密 → 滑点成本越大</td><td>过拟合历史噪声</td></tr>
+  <tr><td>出场</td><td>止损比例、ATR 倍数、跟踪距离</td><td>止损越窄 → 胜率越低但盈亏比可能更高</td><td>被市场噪音频繁扫损</td></tr>
+  <tr><td>仓位</td><td>凯利分数、目标波动率、单票上限</td><td>仓位越大 → 收益越高但回撤也越大</td><td>凯利全部资金可能回撤 50\%+</td></tr>
+  <tr><td>风控</td><td>VaR 置信度、MDD 硬止损线、相关性阈值</td><td>约束越严 → 收益上限越低但生存概率越高</td><td>过度保守跑不赢通胀</td></tr>
+</table>
+
+<script>
+MathJax.Hub.Queue(["Typeset", MathJax.Hub]);
+</script>
+
+</body>
+</html>
