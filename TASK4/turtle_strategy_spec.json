@@ -1,0 +1,484 @@
+{
+  "version": "1.0.0",
+  "name": "海龟策略回测 Spec",
+  "description": "基于已存储的三只A股日线数据，实现完整海龟趋势跟踪策略（双系统 + 金字塔加仓 + 波动率仓位管理 + 多层风控），生成交易信号、持仓记录和回测绩效报告。不包含代码实现，仅定义策略配置和运行逻辑。",
+  "created_at": "2026-07-11",
+  "output_dir": "TASK4/output/",
+
+  "======================================================================": "第一部分：数据源定义",
+  "data_sources": {
+    "description": "所有数据均在 data/ 目录下。使用前复权价格（_qfq 列）生成信号，避免分红送股导致的价格跳空。",
+    "stocks": [
+      {
+        "ts_code": "688981.SH",
+        "name": "中芯国际",
+        "market": "A股(科创板)",
+        "data_dir": "data/688981.SH_中芯国际/",
+        "price_file": "data/688981.SH_中芯国际/daily_adjusted.csv",
+        "basic_file": "data/688981.SH_中芯国际/daily_basic.csv",
+        "hk_file": "data/688981.SH_中芯国际/daily_hk.csv",
+        "dual_listed": true,
+        "enable": true,
+        "price_columns": {
+          "date": "trade_date",
+          "open": "open_qfq",
+          "high": "high_qfq",
+          "low": "low_qfq",
+          "close": "close_qfq",
+          "volume": "vol",
+          "amount": "amount"
+        },
+        "note": "A+H双市场——A股和港股可独立运行策略，也可做A/H溢价对比"
+      },
+      {
+        "ts_code": "002594.SZ",
+        "name": "比亚迪",
+        "market": "A股(深市主板)",
+        "data_dir": "data/002594.SZ_比亚迪/",
+        "price_file": "data/002594.SZ_比亚迪/daily_adjusted.csv",
+        "basic_file": "data/002594.SZ_比亚迪/daily_basic.csv",
+        "hk_file": "data/002594.SZ_比亚迪/daily_hk.csv",
+        "dual_listed": true,
+        "enable": true,
+        "price_columns": {
+          "date": "trade_date",
+          "open": "open_qfq",
+          "high": "high_qfq",
+          "low": "low_qfq",
+          "close": "close_qfq",
+          "volume": "vol",
+          "amount": "amount"
+        },
+        "note": "A+H双市场——比亚迪港股为H股，与A股不同权"
+      },
+      {
+        "ts_code": "603986.SH",
+        "name": "兆易创新",
+        "market": "A股(沪市主板)",
+        "data_dir": "data/603986.SH_兆易创新/",
+        "price_file": "data/603986.SH_兆易创新/daily_adjusted.csv",
+        "basic_file": "data/603986.SH_兆易创新/daily_basic.csv",
+        "hk_file": null,
+        "dual_listed": false,
+        "enable": true,
+        "price_columns": {
+          "date": "trade_date",
+          "open": "open_qfq",
+          "high": "high_qfq",
+          "low": "low_qfq",
+          "close": "close_qfq",
+          "volume": "vol",
+          "amount": "amount"
+        },
+        "note": "纯A股标的，无港股对照"
+      }
+    ],
+    "data_quality": {
+      "encoding": "utf-8-sig",
+      "date_format": "YYYYMMDD",
+      "sort_direction": "ascending（日期升序）",
+      "expected_min_rows": 700,
+      "handle_missing": "drop（缺失日期不做插值，跳过该日期）",
+      "weekend_and_holidays": "CSV中仅包含交易日，逻辑中假定日期连续即可"
+    }
+  },
+
+  "======================================================================": "第二部分：策略核心参数（用户修改入口）",
+  "strategy_parameters": {
+    "description": "以下参数均可自由调整，修改后重新运行回测即可对比效果。每个参数都标注了经典值和建议范围。",
+
+    "trend_following": {
+      "description": "趋势跟踪核心——两个并行的唐奇安通道突破系统",
+
+      "system_1": {
+        "label": "系统1（短线）",
+        "entry_period": 20,
+        "entry_rule": "价格 close_qfq > 过去 20 日最高 high_qfq → 买入信号",
+        "exit_period": 10,
+        "exit_rule": "价格 close_qfq < 过去 10 日最低 low_qfq → 卖出信号",
+        "reentry_filter": true,
+        "reentry_filter_rule": "如果上一次系统1信号最终以亏损出场，则跳过当前系统1入场信号。仅在信号亏损时生效，盈利信号不触发过滤。",
+        "typical_win_rate": "35%~40%",
+        "note": "经典值。entry_period 减小 → 更敏感、信号更多、假突破更多；增大 → 更迟钝、信号更少。"
+      },
+
+      "system_2": {
+        "label": "系统2（长线）",
+        "entry_period": 55,
+        "entry_rule": "价格 close_qfq > 过去 55 日最高 high_qfq → 买入信号",
+        "exit_period": 20,
+        "exit_rule": "价格 close_qfq < 过去 20 日最低 low_qfq → 卖出信号",
+        "skip_signal": false,
+        "skip_signal_rule": "系统2信号永不跳过。无论前一笔盈亏如何，每个系统2入场信号必须执行。",
+        "typical_win_rate": "40%~45%",
+        "note": "经典值。这是捕捉大级别趋势的主力系统。"
+      },
+
+      "entry_order_type": {
+        "type": "Buy Stop（买入停止单）",
+        "trigger_rule": "当 close_qfq 突破 entry_period 最高价时触发",
+        "simulation_rule": "回测中简化为：突破当日以次日开盘价 open_qfq 成交（模拟次日挂单执行）。如果想模拟当日成交，可改为以突破价 + slippage 成交。",
+        "slippage_pct": 0.001,
+        "slippage_note": "滑点 = 成交价 × 0.1%，模拟真实交易中不能以精确突破价买入的情况"
+      }
+    },
+
+    "position_sizing": {
+      "description": "仓位管理——基于ATR波动率归一化的Unit系统",
+
+      "atr": {
+        "period": 20,
+        "label": "ATR 计算周期",
+        "method": "指数平滑（Wilder方法）",
+        "formula": "初始: ATR = avg(TR[0:20]);  递推: ATR_t = (19 × ATR_{t-1} + TR_t) / 20",
+        "note": "经典值20。与唐奇安通道的 entry_period 一致，保持系统内部协调。"
+      },
+
+      "unit": {
+        "risk_per_trade_pct": 0.01,
+        "risk_per_trade_label": "单笔风险占账户比例",
+        "formula": "1 Unit = floor( Account × {risk_per_trade_pct} / (N × 每手股数) )",
+        "lot_size": 100,
+        "lot_size_note": "A股每手100股，Unit 需向下取整到100的倍数",
+        "account_initial": 1000000,
+        "account_initial_note": "初始资金100万人民币，用于计算 Unit 大小",
+        "n_atr_label": "N = ATR(20)，即平均真实波幅",
+        "note": "含义：如果这笔交易亏了 1 个 N，账户恰好损失 {risk_per_trade_pct}。修改 risk_per_trade_pct 可以调整激进/保守程度：0.005=保守，0.02=激进。"
+      },
+
+      "pyramiding": {
+        "max_units": 4,
+        "add_interval_n": 0.5,
+        "add_rule": "首次建仓 1 Unit。价格每向有利方向运行 0.5 N，加仓 1 Unit，最多 4 Unit。",
+        "add_price_formula": "第 k 次加仓价 = 首次入场价 + (k-1) × 0.5 × N",
+        "note": "经典值 max_units=4, interval=0.5N。减小 interval → 更快加满、风险更集中；增大 → 加仓更保守。"
+      }
+    },
+
+    "risk_management": {
+      "description": "多层风控——从单笔止损到全局仓位上限",
+
+      "initial_stop": {
+        "stop_distance_n": 2.0,
+        "rule": "建仓后，如果价格反向运行 2.0 N，立即平仓。",
+        "formula": "止损价 = 入场价 - 2.0 × N",
+        "note": "经典值2.0。减小 → 更紧止损、更频繁出场；增大 → 更宽松、允许更大回撤。注意：止损距离 × Unit风险 = 实际最大亏损比例（2.0 × 1% = 2%）"
+      },
+
+      "trailing_exit": {
+        "system_1_exit_period": 10,
+        "system_2_exit_period": 20,
+        "rule": "不设固定止盈价。出场信号仅由唐奇安通道下轨触发（跌破 M 日最低价）。",
+        "note": "趋势跟踪的核心信仰：让利润奔跑。出场点会自动跟随价格上移（因为 M 日最低价也随趋势走高）。"
+      },
+
+      "correlation_limits": {
+        "description": "三层嵌套的全局仓位上限——即使每个品种分开看都没超限，加在一起也可能超限。",
+        "single_stock_max_units": 4,
+        "single_stock_rule": "任何单只股票的持仓不超过 4 Unit",
+        "correlated_group_max_units": 6,
+        "correlated_group_rule": "高度相关股票组的合计持仓不超过 6 Unit。当前三只股票中的分组：['688981.SH(中芯国际)', '603986.SH(兆易创新)'] 同属半导体板块，编入一组。['002594.SZ(比亚迪)'] 属于新能源/汽车板块，单独一组。",
+        "correlated_groups": {
+          "group_semiconductor": {
+            "label": "半导体组",
+            "members": ["688981.SH", "603986.SH"],
+            "max_units": 6,
+            "note": "中芯国际和兆易创新虽分属制造/设计不同子行业，但同受半导体周期驱动，高度相关。"
+          },
+          "group_nev": {
+            "label": "新能源/汽车组",
+            "members": ["002594.SZ"],
+            "max_units": 6,
+            "note": "比亚迪单独一组。如果未来加入其他新能源车标的（如宁德时代），归入此组。"
+          }
+        },
+        "same_direction_max_units": 12,
+        "same_direction_rule": "所有做多仓位（无论来自哪个组）合计不超过 12 Unit。当前仅做多（A股不支持裸空），这个限制在少数品种时通常不会触发。",
+        "note": "三只股票 + 仅做多 → 理论最大 = 4×3 = 12，刚好等于方向上限。但如果两只半导体股都满仓4+4=8，就超过了半导体组上限6。修改 stocks 数组或启用港股后需重新评估。"
+      },
+
+      "max_drawdown_exit": {
+        "enabled": false,
+        "max_drawdown_pct": 0.30,
+        "rule": "如果账户从最高点回撤超过 30%，暂停所有新开仓，仅管理现有持仓直到全部出场。",
+        "note": "海龟原版没有这条规则，这是现代风控的常见补充。默认关闭。"
+      }
+    },
+
+    "hkd_dual_market": {
+      "description": "A+H双市场策略：对于双上市股票，A股和港股各自独立运行海龟策略，互不干扰。不套利、不对冲——纯粹对比同一公司不同市场的策略表现差异。",
+      "enable_hk": false,
+      "enable_hk_note": "默认关闭港股。港股交易日历与A股不同，需要独立的日期对齐逻辑。开启后，中芯国际和比亚迪各有两个策略实例（A股+港股），但相关性限制中双市场股票视为同一标的（合计≤4 Unit）。",
+      "hk_stocks": ["688981.SH_hk", "002594.SZ_hk"],
+      "hk_price_columns": {
+        "date": "日期",
+        "open": "开盘",
+        "high": "最高",
+        "low": "最低",
+        "close": "收盘",
+        "volume": "成交量",
+        "amount": "成交额"
+      }
+    }
+  },
+
+  "======================================================================": "第三部分：信号生成流程（逻辑描述，非代码）",
+  "signal_generation_pipeline": {
+    "description": "对每只启用的股票，按以下步骤逐日计算。所有步骤仅依赖当天及之前的数据（严格避免未来函数）。",
+
+    "step_1_load_and_prepare": {
+      "description": "加载 daily_adjusted.csv，按 trade_date 升序排列；确保日期列已解析为可排序格式。",
+      "inputs": ["price_file"],
+      "outputs": ["df: trade_date, open_qfq, high_qfq, low_qfq, close_qfq, vol, amount"]
+    },
+
+    "step_2_calc_true_range": {
+      "description": "逐日计算 True Range。第一天（无昨日收盘）TR = high - low。",
+      "formula": "TR[t] = max( high[t]-low[t], |high[t]-close[t-1]|, |low[t]-close[t-1]| )",
+      "outputs": ["df + 'tr' 列"]
+    },
+
+    "step_3_calc_atr": {
+      "description": "前 20 日用简单平均初始化，之后逐日指数平滑递推。",
+      "formula": "ATR[20] = avg(TR[1:20]);  ATR[t>20] = (19×ATR[t-1] + TR[t]) / 20",
+      "outputs": ["df + 'n' 列（即 ATR(20)）"]
+    },
+
+    "step_4_calc_donchian_channels": {
+      "description": "对每行计算唐奇安通道上下轨。两种周期并行：20日（系统1）和 55日（系统2）。",
+      "formula": {
+        "sys1_upper": "max(high_qfq[t-20:t-1])  — 不含当日",
+        "sys1_lower": "min(low_qfq[t-10:t-1])   — 不含当日",
+        "sys2_upper": "max(high_qfq[t-55:t-1])  — 不含当日",
+        "sys2_lower": "min(low_qfq[t-20:t-1])   — 不含当日"
+      },
+      "note": "通道计算不含当日数据，因为当日的突破信号基于「过去N日」的高低点。当日数据用于判断是否突破。",
+      "outputs": ["df + 'sys1_upper', 'sys1_lower', 'sys2_upper', 'sys2_lower' 列"]
+    },
+
+    "step_5_generate_signals": {
+      "description": "逐行检查突破条件，生成原始信号。",
+
+      "system_1_entry": {
+        "condition": "close_qfq[t] > sys1_upper[t] 且 当前无系统1持仓",
+        "action": "生成 S1_BUY 信号，入场价 = open_qfq[t+1] × (1 + slippage_pct)",
+        "reentry_filter": "如果上一次系统1信号以亏损平仓，则忽略本次 S1_BUY"
+      },
+      "system_1_exit": {
+        "condition": "close_qfq[t] < sys1_lower[t] 且 当前有系统1持仓",
+        "action": "生成 S1_SELL 信号，出场价 = open_qfq[t+1] × (1 - slippage_pct)"
+      },
+      "system_2_entry": {
+        "condition": "close_qfq[t] > sys2_upper[t] 且 当前无系统2持仓",
+        "action": "生成 S2_BUY 信号，不跳过"
+      },
+      "system_2_exit": {
+        "condition": "close_qfq[t] < sys2_lower[t] 且 当前有系统2持仓",
+        "action": "生成 S2_SELL 信号"
+      }
+    },
+
+    "step_6_apply_position_sizing": {
+      "description": "在每个入场信号触发时，基于当日最新的 N 值和账户净值计算 Unit 大小。",
+      "formula": "1 Unit = floor( account_equity × 0.01 / (N × lot_size) ) × lot_size",
+      "pyramiding_rule": "入场后，每 0.5N 向上推进一个加仓价格档位，最多加至 4 Unit；每次加仓以次日开盘价成交。"
+    },
+
+    "step_7_apply_risk_limits": {
+      "description": "每个信号生成后，在开仓前检查三层风控上限。超出上限的信号标记为 REJECTED 并记录原因。",
+      "checks_in_order": [
+        {"level": "single_stock", "rule": "该股票当前持仓 Unit 数 + 新增 Unit 数 ≤ 4"},
+        {"level": "correlated_group", "rule": "该股票所属关联组总持仓 Unit 数 + 新增 ≤ 6"},
+        {"level": "same_direction", "rule": "所有做多持仓总 Unit 数 + 新增 ≤ 12"}
+      ]
+    },
+
+    "step_8_apply_stop_loss": {
+      "description": "对于每个持仓，每日检查是否触发止损。",
+      "check": "如果 low_qfq[t] < (入场价 - 2.0 × N_入场时)，则在当日以止损价平仓（模拟日内触发）。",
+      "note": "止损使用入场时的 N 值，而不是最新的 N。这避免了因为市场波动加大而被动放宽止损的矛盾。"
+    }
+  },
+
+  "======================================================================": "第四部分：输出定义",
+  "outputs": {
+    "description": "策略运行完成后生成的文件，全部放在 TASK4/output/ 下。",
+
+    "signal_log": {
+      "file": "TASK4/output/turtle_signals.csv",
+      "format": "csv",
+      "encoding": "utf-8-sig",
+      "columns": [
+        "trade_date（信号触发日期）",
+        "ts_code（股票代码）",
+        "system（S1 或 S2）",
+        "signal_type（BUY / ADD / SELL / STOP_OUT）",
+        "signal_price（信号参考价）",
+        "exec_price（模拟成交价）",
+        "unit_size（本次操作 Unit 数）",
+        "n_at_entry（入场时的 N 值）",
+        "account_equity（操作前账户净值）",
+        "rejected（是/否，被风控拒绝的信号标记为 REJECTED）",
+        "reject_reason（被拒原因，如 'semiconductor_group_limit_exceeded'）"
+      ]
+    },
+
+    "position_ledger": {
+      "file": "TASK4/output/turtle_positions.csv",
+      "format": "csv",
+      "encoding": "utf-8-sig",
+      "description": "每一笔完整的开仓-加仓-平仓记录，一行 = 一个 Unit 的完整生命周期",
+      "columns": [
+        "ts_code（股票代码）",
+        "system（S1/S2）",
+        "unit_seq（该信号的 Unit 序号 1-4）",
+        "entry_date（开仓日期）",
+        "entry_price（开仓价）",
+        "n_at_entry（入场时的 N）",
+        "exit_date（平仓日期，未平仓则为空）",
+        "exit_price（平仓价）",
+        "exit_reason（STOP_LOSS / TRAILING_EXIT_S1 / TRAILING_EXIT_S2 / END_OF_DATA）",
+        "pnl_amount（该 Unit 的盈亏金额）",
+        "pnl_pct（该 Unit 的盈亏百分比）",
+        "pnl_r（盈亏比 = pnl_amount / (N_at_entry × unit_shares × lot_size)）"
+      ]
+    },
+
+    "equity_curve": {
+      "file": "TASK4/output/turtle_equity.csv",
+      "format": "csv",
+      "encoding": "utf-8-sig",
+      "columns": [
+        "trade_date",
+        "account_equity（账户总净值）",
+        "total_units（当日持仓总 Unit 数）",
+        "total_exposure_pct（持仓市值/账户净值）",
+        "cash（现金余额）",
+        "daily_return（日收益率）",
+        "drawdown（从历史最高点的回撤比例）"
+      ]
+    },
+
+    "performance_summary": {
+      "file": "TASK4/output/turtle_performance.json",
+      "format": "json",
+      "description": "按股票+系统维度的绩效汇总",
+      "metrics": [
+        "total_return（总收益率）",
+        "annual_return（年化收益率）",
+        "max_drawdown（最大回撤）",
+        "sharpe_ratio（夏普比率，无风险利率默认 0.02）",
+        "win_rate（胜率 = 盈利交易数/总交易数）",
+        "profit_factor（盈亏因子 = 总盈利/总亏损）",
+        "avg_win（平均盈利金额）",
+        "avg_loss（平均亏损金额）",
+        "avg_r（平均盈亏比，以 R 为单位）",
+        "total_trades（总交易笔数）",
+        "max_consecutive_losses（最大连续亏损次数）",
+        "max_units_used（实际使用的最大 Unit 数）"
+      ]
+    },
+
+    "visualization": {
+      "description": "可选的可视化输出——取决于后续实现阶段是否生成",
+      "suggested_plots": [
+        "账户净值曲线 × 基准（买入持有）对比",
+        "回撤曲线",
+        "持仓热力图（每日各股票 Unit 数）",
+        "信号标记图（在K线上标注买卖点）"
+      ]
+    }
+  },
+
+  "======================================================================": "第五部分：用户修改指南",
+  "modification_guide": {
+    "description": "这是一个纯 spec 文件，修改后可以驱动不同的回测实现。以下是常见的修改场景。",
+
+    "change_data_period": {
+      "what_to_edit": "无需修改 spec。只需要确保 data/ 目录下的 CSV 文件覆盖了你想要的日期范围。策略会完整使用 CSV 中的所有数据。",
+      "note": "如果想限定回测区间，可添加 data_start / data_end 字段到 data_sources 中。"
+    },
+
+    "enable_disable_stocks": {
+      "what_to_edit": "在 data_sources.stocks[].enable 设为 true 或 false",
+      "example": "只测比亚迪：将中芯国际和兆易创新的 enable 设为 false"
+    },
+
+    "change_strategy_aggressiveness": {
+      "conservative": {
+        "risk_per_trade_pct": 0.005,
+        "max_units": 3,
+        "stop_distance_n": 1.5,
+        "effect": "更小仓位、更紧止损、更低回撤——但可能错过部分趋势"
+      },
+      "classic": {
+        "risk_per_trade_pct": 0.01,
+        "max_units": 4,
+        "stop_distance_n": 2.0,
+        "effect": "Dennis 原版参数，平衡型"
+      },
+      "aggressive": {
+        "risk_per_trade_pct": 0.02,
+        "max_units": 5,
+        "stop_distance_n": 2.5,
+        "effect": "更大仓位、更宽止损、更大波动——需要更强的心理承受力"
+      }
+    },
+
+    "change_entry_periods": {
+      "example_faster": "系统1 entry=10 exit=5; 系统2 entry=40 exit=15 → 更灵敏、更多交易",
+      "example_slower": "系统1 entry=30 exit=15; 系统2 entry=70 exit=30 → 更迟钝、更少交易",
+      "what_to_edit": "strategy_parameters.trend_following.system_1/2 中的 entry_period 和 exit_period"
+    },
+
+    "add_new_stock": {
+      "steps": [
+        "1. 在 data_sources.stocks 数组中新增一条记录",
+        "2. 设置 ts_code, name, data_dir, price_file, price_columns",
+        "3. 如果与现有股票高度相关，更新 correlated_groups",
+        "4. 确保对应的 CSV 文件已存在于 data/ 目录中"
+      ]
+    },
+
+    "enable_hk_market": {
+      "steps": [
+        "1. 将 hkd_dual_market.enable_hk 设为 true",
+        "2. 港股实例会继承同一套策略参数，但交易日历不同需要独立对齐",
+        "3. 相关性限制中 A股和港股同一标的视为同一组"
+      ]
+    }
+  },
+
+  "======================================================================": "第六部分：策略评估基准",
+  "benchmarks": {
+    "description": "建议与以下基准对比，判断策略的有效性。",
+    "benchmark_list": [
+      {
+        "name": "买入持有 (Buy & Hold)",
+        "description": "在回测起始日以全部资金买入等权重组合，持有至结束。对比总收益、回撤、夏普。"
+      },
+      {
+        "name": "等权重定期再平衡",
+        "description": "每月初将三只股票仓位调整至等权重，模拟被动指数投资。"
+      },
+      {
+        "name": "单独运行vs全组合运行",
+        "description": "对比每只股票独立运行海龟策略的结果 vs 三只股票同时运行（受相关性限制约束）的结果，评估风控限制的代价与收益。"
+      }
+    ]
+  },
+
+  "======================================================================": "第七部分：已验证的正确性约束",
+  "correctness_constraints": {
+    "description": "实现时需遵守的硬约束，避免常见的回测错误。",
+    "rules": [
+      "禁止未来函数：任何第 T 日的决策，只能使用 ≤ T-1 日的数据作为条件判断，使用 T+1 日开盘价作为成交价。",
+      "止损优先：每日先检查止损条件，再检查入场条件。如果同日既触发止损又触发入场，只执行止损。",
+      "N 值锚定：每个 Unit 的止损距离使用入场时的 N，不随每日 ATR 更新而变化。加仓时的 Unit 按加仓当日的 N 计算，止损也锚定在加仓时的 N。",
+      "信号不合并：系统1和系统2的信号完全独立处理，各自维护持仓和出场逻辑。同一日可能同时持有系统1和系统2的仓位（双倍风险敞口）。",
+      "整数手数：A 股每手 100 股，Unit 必须向下取整到 100 的倍数。",
+      "印花税/佣金：默认不计（简化回测）。如需计入，增加 commission_rate 和 stamp_tax_rate 参数。",
+      "涨跌停处理：如果次日开盘价触发信号但是一字涨停/跌停无法成交，信号视为未执行。此项为高级功能，初版可忽略。"
+    ]
+  }
+}

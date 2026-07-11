@@ -23,3 +23,7 @@ build_html.py
 
 # WorkBuddy
 .workbuddy/
+
+# Data files (from tushare/akshare, too large)
+data/
+*.csv
