@@ -1,0 +1,645 @@
+{
+  "version": "1.0.0",
+  "description": "基于 model_data_stock.csv 的量化选股机器学习建模Spec — 面板数据二分类任务",
+  "created_at": "2026-07-14",
+  "last_updated": "2026-07-14",
+  "status": "draft — 待审阅调整后进入实现阶段",
+
+  "input_data": {
+    "file": "TASK5/model_data_stock.csv",
+    "rows": 20772,
+    "columns": 20,
+    "unique_stocks": 4281,
+    "time_periods": 5,
+    "date_range": "2021-06-30 ~ 2022-06-30",
+    "frequency": "季度横截面",
+    "coverage": {
+      "full_5_periods": 3967,
+      "partial_1_4_periods": 314,
+      "note": "92.7%的股票覆盖全部5期，314只不完整（次新股/退市股）"
+    }
+  },
+
+  "problem_definition": {
+    "task_type": "二分类",
+    "target": "Y",
+    "target_type": "bool",
+    "positive_class": "True",
+    "positive_ratio": 0.4039,
+    "class_balance": "轻度不平衡（True:False ≈ 4:6），无需特殊重采样",
+    "prediction_horizon": "未知（需确认：Y是同期标签还是未来一期标签）",
+    "application": "量化因子选股 — 判断某只股票在某个季度末是否满足买入条件",
+    "open_questions": [
+      "Y的具体定义是什么？（跑赢基准？满足多因子条件？人工标注？）",
+      "是同期预测还是滞后一期预测？（这对回测框架至关重要）",
+      "如为同期预测，需改为 t+1 期标签以避免前视偏差"
+    ]
+  },
+
+  "feature_catalog": {
+    "id_columns": [
+      { "name": "Date", "dtype": "str", "role": "时间索引 — 分组交叉验证的分组键之一" },
+      { "name": "Code", "dtype": "int64", "role": "股票标识（已脱敏）— 分组交叉验证的分组键之一" }
+    ],
+
+    "valuation_factors": [
+      { "name": "企业倍数(EV除EBITDA)", "dtype": "float64", "category": "估值",
+        "skew": 82.1, "extreme": "严重", "log_transform": true },
+      { "name": "市净率PB(MRQ)", "dtype": "float64", "category": "估值",
+        "skew": 103.1, "extreme": "严重", "log_transform": true },
+      { "name": "市现率PCF(现金净流量TTM)", "dtype": "float64", "category": "估值",
+        "skew": -25.8, "extreme": "严重", "log_transform": false,
+        "note": "负偏严重，存在大量负值，不适合log" },
+      { "name": "市现率PCF(经营现金流TTM)", "dtype": "float64", "category": "估值",
+        "skew": 1.7, "extreme": "中度" },
+      { "name": "市盈率PE(TTM)", "dtype": "float64", "category": "估值",
+        "skew": -102.8, "extreme": "严重",
+        "note": "大量负PE（亏损企业），需特殊处理" },
+      { "name": "市盈率PE(TTM,扣除非经常性损益)", "dtype": "float64", "category": "估值",
+        "skew": -26.2, "extreme": "严重",
+        "note": "扣非PE与PE(TTM) Spearman=0.72，中度冗余" },
+      { "name": "市销率PS(TTM)", "dtype": "float64", "category": "估值",
+        "skew": 87.8, "extreme": "严重", "log_transform": true },
+      { "name": "股息率(近12个月)", "dtype": "float64", "category": "估值",
+        "skew": 4.7, "extreme": "中度" }
+    ],
+
+    "growth_factors": [
+      { "name": "净利润同比增长率", "dtype": "float64", "category": "成长",
+        "skew": -61.4, "extreme": "严重",
+        "multicollinearity_group": "profit_cluster",
+        "spearman_within_cluster": "0.96~0.98",
+        "note": "与利润总额/营业利润/EPS同比高度单调相关，4选1" },
+      { "name": "净资产同比增长率", "dtype": "float64", "category": "成长",
+        "skew": -0.4, "extreme": "可接受" },
+      { "name": "利润总额(同比增长率)", "dtype": "float64", "category": "成长",
+        "skew": 41.6, "extreme": "严重",
+        "multicollinearity_group": "profit_cluster" },
+      { "name": "基本每股收益(同比增长率)", "dtype": "float64", "category": "成长",
+        "skew": -2.2, "extreme": "中度",
+        "multicollinearity_group": "profit_cluster" },
+      { "name": "总资产同比增长率", "dtype": "float64", "category": "成长",
+        "skew": 20.7, "extreme": "严重" },
+      { "name": "现金净流量同比增长率", "dtype": "float64", "category": "成长",
+        "skew": -42.6, "extreme": "严重" },
+      { "name": "营业利润(同比增长率)", "dtype": "float64", "category": "成长",
+        "skew": -67.5, "extreme": "严重",
+        "multicollinearity_group": "profit_cluster" },
+      { "name": "营业总收入(同比增长率)", "dtype": "float64", "category": "成长",
+        "skew": 129.2, "extreme": "严重" }
+    ],
+
+    "scale_factor": [
+      { "name": "MV", "dtype": "float64", "category": "规模",
+        "skew": 15.4, "extreme": "严重", "log_transform": true,
+        "note": "总市值，建议取对数后作为控制变量" }
+    ],
+
+    "multicollinearity_summary": {
+      "profit_cluster": {
+        "members": ["净利润同比增长率", "利润总额(同比增长率)", "营业利润(同比增长率)", "基本每股收益(同比增长率)"],
+        "spearman_range": "0.94 ~ 0.98",
+        "pearson_range": "0.06 ~ 0.27",
+        "root_cause": "极端值压低了Pearson相关，但单调关系极强",
+        "action": "winsorize后重算Pearson & VIF，4选1或PCA降维",
+        "candidates_to_keep": [
+          { "feature": "净利润同比增长率", "rationale": "最直接反映盈利增长，信息最完整" },
+          { "feature": "基本每股收益(同比增长率)", "rationale": "与股价最直接相关，EPS增长驱动股价" }
+        ]
+      },
+      "pe_pair": {
+        "members": ["市盈率PE(TTM)", "市盈率PE(TTM,扣除非经常性损益)"],
+        "spearman": 0.72,
+        "action": "二选一，推荐保留扣非PE（排除一次性损益干扰）"
+      },
+      "observation": "缩尾后共线性将大幅暴露，VIF可能从当前~1跃升至~10-50"
+    }
+  },
+
+  "preprocessing_pipeline": {
+    "description": "按顺序执行的预处理步骤，每步可独立开关",
+    "steps": [
+      {
+        "step": "data_split",
+        "label": "数据集划分",
+        "method": "purged_group_time_series_split",
+        "description": "按时间顺序划分：前3期(2021Q2-Q4)为训练集，第4期(2022Q1)为验证集，第5期(2022Q2)为测试集",
+        "rationale": "时序面板数据不能随机打乱，必须严格按时间顺序。股票Code作为分组键防止同一股票跨集泄漏",
+        "config": {
+          "train_periods": ["2021-06-30", "2021-09-30", "2021-12-31"],
+          "val_periods": ["2022-03-31"],
+          "test_periods": ["2022-06-30"],
+          "group_key": "Code"
+        },
+        "alternatives": [
+          {
+            "name": "expanding_window_cv",
+            "description": "扩展窗口交叉验证，更充分利用数据但计算量更大",
+            "windows": [
+              { "train": ["2021Q2"], "val": ["2021Q3"] },
+              { "train": ["2021Q2-Q3"], "val": ["2021Q4"] },
+              { "train": ["2021Q2-Q4"], "val": ["2022Q1"] }
+            ]
+          }
+        ]
+      },
+      {
+        "step": "outlier_treatment",
+        "label": "极端值处理",
+        "primary_method": "winsorize",
+        "description": "全局按1%/99%分位数缩尾，对每个特征独立执行",
+        "config": {
+          "lower_percentile": 0.01,
+          "upper_percentile": 0.99,
+          "per_feature": true,
+          "fit_on_train_only": true,
+          "note": "分位数必须在训练集上计算，然后应用到全部数据集，避免数据泄漏"
+        },
+        "alternatives": [
+          {
+            "name": "mad_clip",
+            "description": "中位数绝对偏差法（MAD），用 median ± k*MAD 截断。更稳健但阈值更窄。",
+            "config": { "k": 5 }
+          },
+          {
+            "name": "robust_winsorize",
+            "description": "双重缩尾：先用2%/98%粗缩，再对部分特征用MAD细缩",
+            "config": { "first_pass": [0.02, 0.98], "second_pass_mad_k": 5 }
+          }
+        ]
+      },
+      {
+        "step": "log_transform",
+        "label": "对数变换",
+        "description": "对右偏严重的估值因子和市值取自然对数，改善分布正态性",
+        "apply_to": [
+          "企业倍数(EV除EBITDA)",
+          "市净率PB(MRQ)",
+          "市销率PS(TTM)",
+          "MV"
+        ],
+        "config": {
+          "method": "log1p",
+          "note": "使用 log(x + 1) 处理可能的零值"
+        },
+        "skip_for": [
+          "市盈率PE(TTM) — 含大量负值",
+          "市现率PCF(现金净流量TTM) — 含大量负值"
+        ]
+      },
+      {
+        "step": "missing_value_handling",
+        "label": "缺失值处理",
+        "description": "当前数据集无缺失值。但需预留处理逻辑以防未来数据变化",
+        "config": {
+          "strategy": "median_per_date",
+          "note": "按日期分组，用同截面中位数填充，优于全局均值"
+        },
+        "status": "当前无需执行，已确认0缺失"
+      },
+      {
+        "step": "feature_selection",
+        "label": "特征筛选 — 处理共线性",
+        "description": "缩尾后重算Spearman/Pearson/VIF，按规则缩减profit_cluster和pe_pair",
+        "options": [
+          {
+            "strategy": "manual_select",
+            "label": "方案A：人工选取（推荐）",
+            "keep": [
+              "企业倍数(EV除EBITDA)_log",
+              "市净率PB(MRQ)_log",
+              "市现率PCF(现金净流量TTM)",
+              "市现率PCF(经营现金流TTM)",
+              "市盈率PE(TTM,扣除非经常性损益)",
+              "市销率PS(TTM)_log",
+              "股息率(近12个月)",
+              "净利润同比增长率",
+              "净资产同比增长率",
+              "总资产同比增长率",
+              "现金净流量同比增长率",
+              "营业总收入(同比增长率)",
+              "MV_log"
+            ],
+            "dropped": [
+              "市盈率PE(TTM) — 与扣非PE冗余",
+              "利润总额(同比增长率) — 与净利同比高度共线",
+              "营业利润(同比增长率) — 与净利同比高度共线",
+              "基本每股收益(同比增长率) — 与净利同比高度共线"
+            ],
+            "note": "profit_cluster保留净利同比（最直接），其余3个剔除"
+          },
+          {
+            "strategy": "pca_profit_cluster",
+            "label": "方案B：PCA降维profit_cluster",
+            "keep_existing": 13,
+            "add": ["profit_pc1"],
+            "note": "对4个利润因子做PCA取第一主成分，保留信息同时消除共线性"
+          },
+          {
+            "strategy": "vif_threshold",
+            "label": "方案C：VIF阈值自动筛选",
+            "config": { "vif_threshold": 10, "iterative": true },
+            "note": "缩尾后迭代剔除VIF>10的特征直至全部满足"
+          }
+        ]
+      },
+      {
+        "step": "standardization",
+        "label": "标准化",
+        "description": "将特征缩放至零均值、单位方差。必须仅用训练集统计量",
+        "config": {
+          "method": "standard_scaler",
+          "fit_on_train_only": true,
+          "note": "对线性模型（逻辑回归、SVM）必需；对树模型（XGBoost/LightGBM）可选"
+        }
+      },
+      {
+        "step": "neutralization_optional",
+        "label": "中性化（可选）",
+        "description": "对因子值做行业/市值中性化，消除系统性偏差。由于Code已脱敏且无行业标签，仅做市值中性化",
+        "config": {
+          "enabled": false,
+          "reason_disabled": "Code已脱敏，无行业标签；市值中性化可后续补充",
+          "market_cap_neutral": {
+            "method": "回归取残差",
+            "formula": "factor_i ~ log(MV)",
+            "note": "对每个截面日期分别回归，取残差作为中性化后的因子值"
+          }
+        }
+      }
+    ]
+  },
+
+  "model_candidates": {
+    "description": "按复杂度递增排列的候选模型，建议从baseline开始逐步尝试",
+    "models": [
+      {
+        "id": "logistic_baseline",
+        "name": "逻辑回归（Baseline）",
+        "type": "线性模型",
+        "complexity": "低",
+        "interpretability": "高 — 可直接查看因子权重和显著性",
+        "pros": ["可解释性强", "训练快", "天然输出概率", "量化研报中最常见"],
+        "cons": ["仅能捕捉线性关系", "对极端值敏感（需先缩尾）"],
+        "hyperparameters": {
+          "C": [0.01, 0.1, 1.0, 10.0],
+          "penalty": ["l1", "l2"],
+          "solver": ["liblinear"],
+          "class_weight": ["balanced", null]
+        },
+        "priority": "P0 — 必须实现，作为所有模型的比较基准",
+        "expected_metric": "AUC ≈ 0.55~0.65（线性模型的典型因子选股水平）"
+      },
+      {
+        "id": "xgboost",
+        "name": "XGBoost",
+        "type": "梯度提升树",
+        "complexity": "中",
+        "interpretability": "中 — 可输出特征重要性",
+        "pros": ["捕捉非线性关系和交互作用", "对极端值相对稳健", "量化竞赛常胜模型"],
+        "cons": ["超参数多需仔细调参", "对面板结构无特殊支持"],
+        "hyperparameters": {
+          "n_estimators": [100, 200, 500],
+          "max_depth": [3, 5, 7],
+          "learning_rate": [0.01, 0.05, 0.1],
+          "subsample": [0.7, 0.8, 1.0],
+          "colsample_bytree": [0.7, 0.8, 1.0],
+          "reg_alpha": [0, 0.1, 1.0],
+          "reg_lambda": [1.0, 5.0, 10.0],
+          "scale_pos_weight": [1.0, 1.5]
+        },
+        "priority": "P0",
+        "expected_metric": "AUC ≈ 0.60~0.70"
+      },
+      {
+        "id": "lightgbm",
+        "name": "LightGBM",
+        "type": "梯度提升树",
+        "complexity": "中",
+        "interpretability": "中",
+        "pros": ["比XGBoost更快", "原生支持类别特征", "leaf-wise生长更高效"],
+        "cons": ["小数据集可能过拟合", "对超参数敏感"],
+        "hyperparameters": {
+          "n_estimators": [100, 200, 500],
+          "max_depth": [3, 5, 7, -1],
+          "learning_rate": [0.01, 0.05, 0.1],
+          "num_leaves": [15, 31, 63],
+          "subsample": [0.7, 0.8, 1.0],
+          "colsample_bytree": [0.7, 0.8, 1.0],
+          "reg_alpha": [0, 0.1, 1.0],
+          "reg_lambda": [0, 1.0, 5.0]
+        },
+        "priority": "P1",
+        "expected_metric": "AUC ≈ 0.60~0.70"
+      },
+      {
+        "id": "random_forest",
+        "name": "随机森林",
+        "type": "集成树模型",
+        "complexity": "中",
+        "interpretability": "中 — 输出特征重要性",
+        "pros": ["不容易过拟合", "对超参数不敏感", "天然支持概率输出"],
+        "cons": ["训练较慢", "在金融数据上通常弱于Boosting"],
+        "hyperparameters": {
+          "n_estimators": [100, 200, 500],
+          "max_depth": [5, 10, 15, null],
+          "min_samples_split": [2, 5, 10],
+          "min_samples_leaf": [1, 2, 5],
+          "class_weight": ["balanced", null]
+        },
+        "priority": "P1 — 作为Boosting模型的对照",
+        "expected_metric": "AUC ≈ 0.58~0.68"
+      },
+      {
+        "id": "mlp",
+        "name": "多层感知机 (MLP)",
+        "type": "神经网络",
+        "complexity": "高",
+        "interpretability": "低",
+        "pros": ["可拟合任意复杂函数", "适合特征交互复杂的场景"],
+        "cons": ["需要大量调参", "可解释性差", "金融领域接受度低", "小数据集易过拟合"],
+        "hyperparameters": {
+          "hidden_layer_sizes": [[32], [64, 32], [128, 64, 32]],
+          "activation": ["relu", "tanh"],
+          "alpha": [0.0001, 0.001, 0.01],
+          "learning_rate_init": [0.001, 0.01],
+          "batch_size": [64, 128, 256]
+        },
+        "priority": "P2 — 可选探索",
+        "expected_metric": "AUC ≈ 0.58~0.68（数据量仅2万行，可能不如树模型）"
+      }
+    ]
+  },
+
+  "validation_strategy": {
+    "description": "时序面板数据的核心挑战：既要避免前视偏差(look-ahead bias)，又要避免幸存者偏差",
+    "primary_scheme": {
+      "name": "Time-Series Group Split",
+      "train": "2021-Q2 ~ 2021-Q4",
+      "validation": "2022-Q1",
+      "test": "2022-Q2",
+      "group_col": "Code",
+      "rationale": "确保同一只股票的所有记录在同一集合中，杜绝跨时间泄漏"
+    },
+    "alternative_schemes": [
+      {
+        "name": "Expanding Window CV",
+        "description": "滚动扩展窗口，适合小样本时充分利用数据",
+        "windows": [
+          { "train": ["2021-Q2"], "val": ["2021-Q3"] },
+          { "train": ["2021-Q2~Q3"], "val": ["2021-Q4"] },
+          { "train": ["2021-Q2~Q4"], "val": ["2022-Q1"] }
+        ]
+      },
+      {
+        "name": "Purged K-Fold",
+        "description": "带清除期的K折交叉验证，在train和val之间加入缓冲区避免重叠",
+        "note": "只有5个时间点，K-fold不太适用，作为备选"
+      }
+    ]
+  },
+
+  "evaluation_metrics": {
+    "primary_metrics": [
+      {
+        "name": "AUC-ROC",
+        "description": "衡量模型整体排序能力，是量化选股最核心的指标",
+        "threshold": { "good": 0.65, "excellent": 0.75 }
+      },
+      {
+        "name": "Precision@TopK",
+        "description": "Top 100/200/500只推荐股票中的准确率（命中率）",
+        "K_values": [100, 200, 500],
+        "note": "模拟实际投资组合的前K只选股效果"
+      }
+    ],
+    "secondary_metrics": [
+      {
+        "name": "IC (Information Coefficient)",
+        "description": "预测概率与真实Y的Rank IC，衡量横截面排序有效性",
+        "formula": "Spearman(pred_prob, Y_true) per date, then mean"
+      },
+      {
+        "name": "ICIR",
+        "description": "IC均值 / IC标准差，衡量一致性和稳定性",
+        "threshold": { "good": 0.5, "excellent": 1.0 }
+      },
+      {
+        "name": "F1 Score",
+        "description": "精确率和召回率的调和平均"
+      },
+      {
+        "name": "Cumulative Return (模拟)",
+        "description": "按预测概率TopK等权构建模拟组合，计算累计收益",
+        "note": "需要回测框架支持，本期可不做"
+      }
+    ],
+    "overfitting_checks": [
+      { "name": "Train/Val AUC Gap", "threshold": "|gap| < 0.05 可接受" },
+      { "name": "IC decay over time", "note": "观察IC是否随测试时间推移而衰减" },
+      { "name": "Feature stability", "note": "特征重要性在不同时期是否一致" }
+    ]
+  },
+
+  "execution_plan": {
+    "description": "按Phase分阶段执行，每个Phase完成后输出中间结果供审阅",
+
+    "phase_0_data_loading": {
+      "label": "Phase 0 — 数据加载与划分",
+      "steps": [
+        "读取 model_data_stock.csv",
+        "输出基本统计（行数/列数/dtypes/缺失值确认）",
+        "按Date分组统计每期股票数",
+        "执行时间序列分组划分：Train(2021Q2-Q4) / Val(2022Q1) / Test(2022Q2)",
+        "输出划分后各集合的样本量和正例占比"
+      ],
+      "outputs": ["划分统计报告", "X_train.csv / X_val.csv / X_test.csv（预处理前）"]
+    },
+
+    "phase_1_preprocessing": {
+      "label": "Phase 1 — 预处理与特征工程",
+      "steps": [
+        {
+          "step": "1a_winsorize",
+          "description": "在训练集上计算P1/P99分位数，对全部数据缩尾",
+          "output": "winsorize前后各特征的min/max对比表"
+        },
+        {
+          "step": "1b_log_transform",
+          "description": "对指定特征做 log1p 变换",
+          "output": "变换后特征的偏度对比"
+        },
+        {
+          "step": "1c_recheck_collinearity",
+          "description": "缩尾后重算Spearman/Pearson/VIF，对比缩尾前",
+          "output": "缩尾后的相关系数矩阵 + VIF表 + 高相关对列表"
+        },
+        {
+          "step": "1d_feature_selection",
+          "description": "根据用户选择的方案（A/B/C）执行特征筛选",
+          "output": "最终保留的特征列表 + 剔除理由"
+        },
+        {
+          "step": "1e_standardization",
+          "description": "StandardScaler fit on train, transform all",
+          "output": "标准化后的统计（每列均值≈0, std≈1）"
+        }
+      ],
+      "outputs": ["处理后的 X_train_processed.csv / X_val_processed.csv / X_test_processed.csv"]
+    },
+
+    "phase_2_baseline_model": {
+      "label": "Phase 2 — 逻辑回归 Baseline",
+      "steps": [
+        "训练 L1/L2 正则化逻辑回归",
+        "GridSearchCV 搜索最佳 C 和 penalty",
+        "输出系数表（正负方向是否符合金融直觉）",
+        "计算 Val 集上的 AUC / IC / Precision@TopK",
+        "生成 ROC 曲线图"
+      ],
+      "outputs": ["LR系数表", "ROC曲线", "Val集指标汇总"]
+    },
+
+    "phase_3_tree_models": {
+      "label": "Phase 3 — 树模型（XGBoost + LightGBM）",
+      "steps": [
+        "训练 XGBoost，GridSearch 调参",
+        "训练 LightGBM，GridSearch 调参",
+        "输出特征重要性排名",
+        "对比 LR/XGBoost/LightGBM 在 Val 集上的性能"
+      ],
+      "outputs": ["特征重要性图", "模型对比表", "参数搜索结果"]
+    },
+
+    "phase_4_test_evaluation": {
+      "label": "Phase 4 — 测试集最终评估",
+      "steps": [
+        "选定最佳模型（基于Val表现）",
+        "在Test集上计算所有指标",
+        "输出 AUC / IC / Precision@TopK / ICIR",
+        "生成最终报告"
+      ],
+      "outputs": ["测试集评估报告", "最佳模型参数", "完整预测结果"]
+    },
+
+    "phase_5_interpretation": {
+      "label": "Phase 5 — 模型解释（可选）",
+      "steps": [
+        "SHAP分析：特征重要性 + 特征效应方向 + 交互效应",
+        "部分依赖图（PDP）：关键特征与预测概率的关系",
+        "单样本解释：随机选几只股票的预测驱动因素"
+      ],
+      "priority": "P2",
+      "note": "如使用XGBoost，用shap库；如使用LightGBM，也可用shap"
+    }
+  },
+
+  "output_spec": {
+    "directory": "TASK5/outputs/",
+    "encoding": "utf-8-sig",
+    "files": [
+      { "name": "preprocessing_summary.json", "type": "JSON报告", "phase": 1 },
+      { "name": "feature_corr_after_winsorize.csv", "type": "相关性矩阵", "phase": 1 },
+      { "name": "vif_after_winsorize.csv", "type": "VIF表", "phase": 1 },
+      { "name": "lr_coefficients.csv", "type": "LR系数", "phase": 2 },
+      { "name": "roc_curve.html", "type": "可视化", "phase": 2 },
+      { "name": "feature_importance.html", "type": "可视化", "phase": 3 },
+      { "name": "model_comparison.csv", "type": "对比表", "phase": 3 },
+      { "name": "test_evaluation_report.json", "type": "JSON报告", "phase": 4 },
+      { "name": "test_predictions.csv", "type": "预测结果", "phase": 4 },
+      { "name": "final_report.html", "type": "可视化总报告", "phase": 4 }
+    ]
+  },
+
+  "configuration": {
+    "random_seed": 42,
+    "cv_folds": 5,
+    "n_jobs": -1,
+    "verbose": true,
+    "save_intermediate": true,
+    "feature_selection_strategy": "manual_select",
+    "outlier_method": "winsorize",
+    "winsorize_percentiles": [0.01, 0.99]
+  },
+
+  "risk_and_limitations": {
+    "known_issues": [
+      {
+        "issue": "Code已脱敏，无法与真实股票对应",
+        "impact": "无法做行业中性化、无法验证个股结果的合理性",
+        "mitigation": "后续建模时向数据提供方索要行业标签"
+      },
+      {
+        "issue": "Y的定义未确认",
+        "impact": "如果是同期标签，模型可能学到虚假模式（前视偏差）",
+        "mitigation": "建模前必须确认Y是否为未来一期标签；如果不是，需重构"
+      },
+      {
+        "issue": "仅5个时间点",
+        "impact": "样本时间跨度短，模型可能过度拟合2021年的市场风格",
+        "mitigation": "扩展窗口CV可部分缓解；模型应用到新数据前需重新验证"
+      },
+      {
+        "issue": "幸存者偏差",
+        "impact": "数据可能只包含存活的股票，退市股被剔除",
+        "mitigation": "检查Code 1~4出现次数的股票是否为退市股"
+      },
+      {
+        "issue": "314只股票不完整覆盖",
+        "impact": "这些股票在部分时期缺失，可能反映新股上市或退市",
+        "mitigation": "在预处理报告中标明，建模时默认保留（可配置剔除）"
+      }
+    ],
+    "future_enhancements": [
+      "添加行业分类 → 行业中性化 + 行业内Ranking",
+      "扩展时间范围到更多季度",
+      "添加宏观因子（利率、PMI等）作为全局特征",
+      "引入市场状态（牛/熊）作为上下文特征",
+      "构建分层模型：先行业分类、再行业内选股"
+    ]
+  },
+
+  "audit_log": {
+    "design_decisions": [
+      {
+        "decision": "Train/Val/Test按时间顺序而非随机划分",
+        "reason": "面板数据必须严格按时间划分，随机划分会导致同一股票不同时期分散在各集合中，产生数据泄漏",
+        "date": "2026-07-14"
+      },
+      {
+        "decision": "profit_cluster保留净利润同比增长率",
+        "reason": "净利润是利润表的核心，包含了营业利润和利润总额的信息；EPS同比增长率虽然与股价直接相关但受股本变动影响",
+        "date": "2026-07-14"
+      },
+      {
+        "decision": "winsorize用1%/99%而非更窄的范围",
+        "reason": "所有特征统一有416个（2%）极端值，说明数据本身就是2% trimming的标准设计，保持一致性",
+        "date": "2026-07-14"
+      },
+      {
+        "decision": "Baseline必须用逻辑回归而非直接上XGBoost",
+        "reason": "线性模型的系数可解释性对量化研究至关重要，且可作为复杂模型的性能下限参考",
+        "date": "2026-07-14"
+      }
+    ]
+  },
+
+  "usage_guide": {
+    "quick_start": [
+      "1. 审阅本spec，确认 problem_definition.open_questions",
+      "2. 根据 Y 的实际含义调整 problem_definition.prediction_horizon",
+      "3. 在 feature_selection 的3个方案中选择一个（推荐方案A）",
+      "4. 确认 preprocessing_pipeline 各步骤的开关",
+      "5. 如需行业中性化，获取行业标签后启用 step 7 (neutralization)",
+      "6. 确认 model_candidates 的优先级排序",
+      "7. 确认后进入实现阶段，按 execution_plan 逐Phase执行"
+    ],
+    "customization_hooks": [
+      "preprocessing_pipeline.steps[].enabled: 可开关任意预处理步骤",
+      "feature_catalog.multicollinearity_summary.profit_cluster.candidates_to_keep: 可选不同的profit因子",
+      "model_candidates.models[].priority: 可调整模型优先级",
+      "validation_strategy: 可选择不同的验证方案",
+      "configuration.feature_selection_strategy: 切换特征筛选方案(A/B/C)"
+    ]
+  }
+}

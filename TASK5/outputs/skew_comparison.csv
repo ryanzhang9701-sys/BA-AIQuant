@@ -1,0 +1,17 @@
+﻿feature,skew_after_winsorize,skew_after_log,log_applied
+企业倍数(EV除EBITDA),1.72,-0.68,True
+市净率PB(MRQ),3.74,1.07,True
+市现率PCF(现金净流量TTM),0.68,0.68,False
+市现率PCF(经营现金流TTM),1.52,1.52,False
+"市盈率PE(TTM,扣除非经常性损益)",-0.33,-0.33,False
+市销率PS(TTM),3.27,0.67,True
+股息率(近12个月),2.05,2.05,False
+MV,4.77,1.03,True
+净利润同比增长率,4.18,4.18,False
+净资产同比增长率,2.71,2.71,False
+利润总额(同比增长率),4.45,4.45,False
+基本每股收益(同比增长率),3.52,3.52,False
+总资产同比增长率,2.49,2.49,False
+现金净流量同比增长率,2.3,2.3,False
+营业利润(同比增长率),4.23,4.23,False
+营业总收入(同比增长率),2.15,2.15,False

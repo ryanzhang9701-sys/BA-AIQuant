@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>特征与目标 Y 的相关系数排名</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#f5f6f8;}
+.header{text-align:center;padding:16px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);}
+.header h1{font-size:17px;color:#1a1a2e;margin-bottom:4px;}
+.header p{font-size:11px;color:#888;}
+#main{width:100%;height:650px;}
+</style>
+</head>
+<body>
+<div class="header"><h1>特征与目标 Y 的相关系数排名</h1><p>点双列相关系数 | 红=正相关 | 绿=负相关</p></div>
+<div id="main"></div>
+<script>
+var c=echarts.init(document.getElementById('main'));
+c.setOption({"tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}}, "grid": {"left": "3%", "right": "12%", "top": "5%", "bottom": "5%", "containLabel": true}, "xAxis": {"type": "value", "name": "点双列相关系数 r"}, "yAxis": {"type": "category", "data": ["基本每股收益(同比增长率)", "MV", "利润总额(同比增长率)", "总资产同比增长率", "营业利润(同比增长率)", "市净率PB(MRQ)", "市现率PCF(现金净流量TTM)", "股息率(近12个月)", "市盈率PE(TTM)", "企业倍数(EV除EBITDA)", "市销率PS(TTM)", "营业总收入(同比增长率)", "市现率PCF(经营现金流TTM)", "市盈率PE(TTM,扣除非经常性损益)", "净利润同比增长率", "净资产同比增长率", "现金净流量同比增长率"], "inverse": true, "axisLabel": {"fontSize": 10}}, "series": [{"type": "bar", "data": [{"value": 0.03316, "itemStyle": {"color": "#e74c3c"}}, {"value": -0.02714, "itemStyle": {"color": "#2ecc71"}}, {"value": 0.02189, "itemStyle": {"color": "#e74c3c"}}, {"value": -0.01749, "itemStyle": {"color": "#2ecc71"}}, {"value": 0.01535, "itemStyle": {"color": "#e74c3c"}}, {"value": -0.01512, "itemStyle": {"color": "#2ecc71"}}, {"value": -0.01347, "itemStyle": {"color": "#2ecc71"}}, {"value": 0.01213, "itemStyle": {"color": "#e74c3c"}}, {"value": 0.00802, "itemStyle": {"color": "#e74c3c"}}, {"value": 0.00726, "itemStyle": {"color": "#e74c3c"}}, {"value": -0.0048, "itemStyle": {"color": "#2ecc71"}}, {"value": -0.00404, "itemStyle": {"color": "#2ecc71"}}, {"value": 0.00394, "itemStyle": {"color": "#e74c3c"}}, {"value": 0.00379, "itemStyle": {"color": "#e74c3c"}}, {"value": 0.00062, "itemStyle": {"color": "#e74c3c"}}, {"value": -0.00016, "itemStyle": {"color": "#2ecc71"}}, {"value": 0.0001, "itemStyle": {"color": "#e74c3c"}}], "label": {"show": true, "position": "right", "fontSize": 9, "formatter": "{c}"}}]});
+window.addEventListener('resize',function(){c.resize();});
+</script>
+</body>
+</html>
