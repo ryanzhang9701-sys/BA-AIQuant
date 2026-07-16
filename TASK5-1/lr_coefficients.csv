@@ -1,0 +1,17 @@
+﻿feature,coefficient,odds_ratio,interpretation
+营业总收入(同比增长率),0.15273959650542437,1.1650215637528074,Positive -> higher prob of rise
+营业利润(同比增长率),0.10260733115831622,1.108056224485695,Positive -> higher prob of rise
+基本每股收益(同比增长率),0.08103337694320445,1.0844070901565999,Positive -> higher prob of rise
+股息率(近12个月),0.029694747496712547,1.0301400331310273,Positive -> higher prob of rise
+总资产同比增长率,0.01198972942221563,1.0120618943522905,Positive -> higher prob of rise
+"市盈率PE(TTM,扣除非经常性损益)",-0.0030080527592595534,0.9969964668985163,Negative -> lower prob of rise
+市现率PCF(现金净流量TTM),-0.003492725588767121,0.9965133668820785,Negative -> lower prob of rise
+市现率PCF(经营现金流TTM),-0.004695005967610675,0.9953159983444012,Negative -> lower prob of rise
+净利润同比增长率,-0.018170181873605744,0.9819939005754348,Negative -> lower prob of rise
+市盈率PE(TTM),-0.019928780733714218,0.9802684848230154,Negative -> lower prob of rise
+企业倍数(EV除EBITDA),-0.032513873571480494,0.9680090199958137,Negative -> lower prob of rise
+现金净流量同比增长率,-0.05623154245232392,0.9453202287842261,Negative -> lower prob of rise
+市销率PS(TTM),-0.06810354134193096,0.9341637440019077,Negative -> lower prob of rise
+MV,-0.08589659589976084,0.9176891191318299,Negative -> lower prob of rise
+净资产同比增长率,-0.12508911541630294,0.8824182620098313,Negative -> lower prob of rise
+市净率PB(MRQ),-0.12901699286418905,0.8789590293872653,Negative -> lower prob of rise

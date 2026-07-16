@@ -1,0 +1,3 @@
+﻿model,feature_set,AUC,Accuracy,Precision,Recall,F1
+XGBoost (Growth only),Growth,0.5842,0.7069,0.2533,0.2813,0.2666
+LR (Growth only),Growth,0.5991,0.7529,0.2915,0.2131,0.2462

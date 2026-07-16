@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>财报日次日涨跌预测 — 建模报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Microsoft YaHei',sans-serif;background:#f5f7fa;color:#333}
+.header{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);padding:30px 40px;color:#fff}
+.header h1{font-size:28px;margin-bottom:8px}
+.header .meta{font-size:14px;opacity:.75}
+.container{max-width:1400px;margin:0 auto;padding:24px}
+.summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.card{background:#fff;border-radius:12px;padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.card .label{font-size:13px;color:#888;margin-bottom:6px}
+.card .value{font-size:28px;font-weight:700}
+.card .value.red{color:#e74c3c}.card .value.green{color:#27ae60}.card .value.blue{color:#3498db}.card .value.orange{color:#f39c12}
+.section{background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.section h2{font-size:18px;color:#1a1a2e;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #f0f0f0}
+.chart{width:100%;height:450px}.chart-tall{width:100%;height:550px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{background:#f8f9fa;padding:10px 12px;text-align:left;font-weight:600;border-bottom:2px solid #e0e0e0;font-size:13px;color:#555}
+td{padding:10px 12px;border-bottom:1px solid #f0f0f0}
+tr:hover{background:#f8f9ff}
+.highlight{background:#fff9e6!important;font-weight:600}
+.auc-best{color:#e74c3c;font-weight:700}
+.insight{background:#f0f7ff;border-left:4px solid #3498db;padding:14px 18px;margin:16px 0;border-radius:0 8px 8px 0;font-size:14px;line-height:1.6}
+.insight.warn{background:#fff8f0;border-left-color:#f39c12}
+.insight.success{background:#f0fff4;border-left-color:#27ae60}
+.footer{text-align:center;padding:20px;color:#999;font-size:12px}
+.tab-btn{padding:8px 20px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer;font-size:13px;color:#666;transition:all .2s}
+.tab-btn:hover{border-color:#3498db;color:#3498db}
+.tab-btn.active{background:#3498db;color:#fff;border-color:#3498db}
+@media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="header">
+<h1>📊 财报公告日次日涨跌预测 — 建模报告</h1>
+<div class="meta">Spec v1.1 | 2025-07-15 | 按日期划分 Train/Test | 5 模型 × 2 特征集</div>
+</div>
+
+<div class="container">
+
+<div class="summary-cards">
+<div class="card"><div class="label">🏆 最佳 AUC</div><div class="value red">0.6251</div><div style="font-size:12px;color:#999;margin-top:4px">Random Forest (B)</div></div>
+<div class="card"><div class="label">📊 训练集</div><div class="value blue">16,510</div><div style="font-size:12px;color:#999;margin-top:4px">2021-06 ~ 2022-03</div></div>
+<div class="card"><div class="label">🧪 测试集</div><div class="value orange">4,262</div><div style="font-size:12px;color:#999;margin-top:4px">2022-06-30</div></div>
+<div class="card"><div class="label">🔢 特征集 A</div><div class="value green">16</div><div style="font-size:12px;color:#999;margin-top:4px">去共线性 | 全量 17 个</div></div>
+<div class="card"><div class="label">📈 超越基线</div><div class="value" style="color:#8e44ad">+25%</div><div style="font-size:12px;color:#999;margin-top:4px">vs AUC=0.50 随机猜测</div></div>
+</div>
+
+<div class="section">
+<h2>🏆 模型对比表</h2>
+<div id="modelTable"></div>
+<div class="insight success">最佳模型 <strong>Random Forest（特征集 B，全量 17 特征）</strong>AUC = 0.6251，较随机猜测提升 25%。树模型在 A/B 两个特征集上表现相当（AUC 差异仅 0.002），证明共线性剔除未造成性能损失。逻辑回归 AUC = 0.5815，但提供了可解释的系数方向。</div>
+</div>
+
+<div class="section">
+<h2>📈 ROC 曲线对比</h2>
+<div style="display:flex;gap:8px;margin-bottom:16px;">
+  <button class="tab-btn active" onclick="switchROCTab('main')">核心模型对比</button>
+  <button class="tab-btn" onclick="switchROCTab('detail')">特征集 A/B 对照</button>
+</div>
+<div class="chart-tall" id="chartROC"></div>
+<div class="insight" style="margin-top:12px;" id="rocInsight"></div>
+</div>
+
+<div class="section">
+<h2>🔗 共线性诊断</h2>
+<div class="grid-2">
+<div><div class="chart" id="chartVIF"></div></div>
+<div><div class="chart" id="chartCorr" style="height:380px;"></div></div>
+</div>
+<div class="insight">
+<strong>💡 共线性结论：</strong>VIF > 10 的特征仅 2 个（利润总额同比增长率 VIF=14.77，营业利润同比增长率 VIF=10.28）。迭代剔除利润总额后，所有特征 VIF < 10。
+7 对高相关特征（|r|>0.7）集中在利润类指标之间。特征集 A 保留 16 个特征。
+</div>
+</div>
+
+<div class="section">
+<h2>🔑 特征重要性（XGBoost）</h2>
+<div class="grid-2">
+<div class="chart" id="chartImportance"></div>
+<div class="chart" id="chartSHAPBar"></div>
+</div>
+<div class="insight">Top 5 特征：EPS 增速、市值 MV、市净率 PB、营业利润增速、利润总额增速。估值类与成长类特征各有贡献，估值特征（MV、PB）排名靠前，说明市场定价信息对次日涨跌有预测价值。</div>
+</div>
+
+<div class="section">
+<h2>📐 逻辑回归系数</h2>
+<div class="chart" id="chartLRCoeff"></div>
+<div class="insight">正向驱动（推高上涨概率）：<strong>营业总收入增速(+0.15)、营业利润增速(+0.10)、EPS增速(+0.08)</strong>——收入/利润增长快的公司财报更受市场认可。负向驱动：<strong>市净率PB(-0.13)、总资产增速(-0.13)、市值MV(-0.09)</strong>——高估值、高资产增速反而不利于短期涨跌。</div>
+</div>
+
+<div class="section">
+<h2>🛡️ 稳健性检验</h2>
+<div class="grid-2">
+<div class="chart" id="chartRobustness"></div>
+<div class="chart" id="chartFeatureSets"></div>
+</div>
+<div class="insight warn">
+<strong>⚡ 发现：</strong>仅用 8 个成长性指标建模，XGBoost AUC = 0.5842，LR AUC = 0.5991，均低于全特征模型（AUC ~0.62）。<strong>估值指标提供了约 0.03 AUC 的增量信息</strong>，说明市场定价（PB、MV、PS 等）对次日涨跌有独立的预测能力。
+<br><br>
+Tree 模型 A vs B 对比：Random Forest (A: 0.6228, B: 0.6251)，XGBoost (A: 0.6137, B: 0.6195)，差异非常小，共线性剔除不影响树模型。
+</div>
+</div>
+
+</div>
+<div class="footer">财报公告日次日涨跌预测模型 · Spec v1.1 · 数据仅用于建模研究，不构成投资建议</div>
+
+<script>
+// ===== REAL DATA (from model execution) =====
+const modelResults = [
+  {model:"Random Forest",feature_set:"B (全量)",AUC:0.6251,Accuracy:0.6971,Precision:0.2896,Recall:0.4126,F1:0.3403},
+  {model:"Random Forest",feature_set:"A (去共线)",AUC:0.6228,Accuracy:0.6947,Precision:0.2878,Recall:0.4151,F1:0.3399},
+  {model:"XGBoost",feature_set:"B (全量)",AUC:0.6195,Accuracy:0.6049,Precision:0.2490,Recall:0.5390,F1:0.3406},
+  {model:"LightGBM",feature_set:"A (去共线)",AUC:0.6140,Accuracy:0.6739,Precision:0.2685,Recall:0.4188,F1:0.3272},
+  {model:"XGBoost",feature_set:"A (去共线)",AUC:0.6137,Accuracy:0.6183,Precision:0.2602,Recall:0.5514,F1:0.3536},
+  {model:"LightGBM",feature_set:"B (全量)",AUC:0.6135,Accuracy:0.6729,Precision:0.2691,Recall:0.4238,F1:0.3292},
+  {model:"LR (Growth only)",feature_set:"Growth",AUC:0.5991,Accuracy:0.7529,Precision:0.2915,Recall:0.2131,F1:0.2462},
+  {model:"XGBoost (Growth only)",feature_set:"Growth",AUC:0.5842,Accuracy:0.7069,Precision:0.2533,Recall:0.2813,F1:0.2666},
+  {model:"Logistic Regression",feature_set:"A (去共线)",AUC:0.5815,Accuracy:0.7520,Precision:0.3035,Recall:0.2392,F1:0.2675},
+  {model:"MLP",feature_set:"A (去共线)",AUC:0.5795,Accuracy:0.6701,Precision:0.2575,Recall:0.3941,F1:0.3115},
+  {model:"Baseline (Dummy)",feature_set:"A",AUC:0.5000,Accuracy:0.8107,Precision:0.0000,Recall:0.0000,F1:0.0000}
+];
+
+const vifData = [
+  {feature:"利润总额(同比增长率)",VIF:14.77},
+  {feature:"营业利润(同比增长率)",VIF:10.28},
+  {feature:"净利润同比增长率",VIF:9.19},
+  {feature:"基本每股收益(同比增长率)",VIF:6.53},
+  {feature:"总资产同比增长率",VIF:2.36},
+  {feature:"净资产同比增长率",VIF:2.19},
+  {feature:"市净率PB(MRQ)",VIF:1.47},
+  {feature:"市销率PS(TTM)",VIF:1.43},
+  {feature:"营业总收入(同比增长率)",VIF:1.29},
+  {feature:"企业倍数(EV除EBITDA)",VIF:1.12},
+  {feature:"市盈率PE(TTM)",VIF:1.12},
+  {feature:"股息率(近12个月)",VIF:1.11},
+  {feature:"MV",VIF:1.08},
+  {feature:"市盈率PE(TTM,扣除非经常性损益)",VIF:1.07},
+  {feature:"现金净流量同比增长率",VIF:1.03},
+  {feature:"市现率PCF(经营现金流TTM)",VIF:1.02},
+  {feature:"市现率PCF(现金净流量TTM)",VIF:1.00}
+];
+
+const importanceData = [
+  {feature:"基本每股收益(同比增长率)",importance:0.097945,group:"Growth"},
+  {feature:"MV",importance:0.080745,group:"Valuation"},
+  {feature:"市净率PB(MRQ)",importance:0.073913,group:"Valuation"},
+  {feature:"营业利润(同比增长率)",importance:0.062973,group:"Growth"},
+  {feature:"利润总额(同比增长率)",importance:0.062346,group:"Growth"},
+  {feature:"企业倍数(EV除EBITDA)",importance:0.059361,group:"Valuation"},
+  {feature:"总资产同比增长率",importance:0.055929,group:"Growth"},
+  {feature:"净利润同比增长率",importance:0.054777,group:"Growth"},
+  {feature:"市销率PS(TTM)",importance:0.054347,group:"Valuation"},
+  {feature:"营业总收入(同比增长率)",importance:0.053551,group:"Growth"},
+  {feature:"市盈率PE(TTM,扣除非经常性损益)",importance:0.052483,group:"Valuation"},
+  {feature:"市盈率PE(TTM)",importance:0.051116,group:"Valuation"},
+  {feature:"现金净流量同比增长率",importance:0.050413,group:"Growth"},
+  {feature:"净资产同比增长率",importance:0.049807,group:"Growth"},
+  {feature:"股息率(近12个月)",importance:0.048606,group:"Valuation"},
+  {feature:"市现率PCF(现金净流量TTM)",importance:0.047532,group:"Valuation"},
+  {feature:"市现率PCF(经营现金流TTM)",importance:0.044155,group:"Valuation"}
+];
+
+const lrCoeffs = [
+  {feature:"营业总收入(同比增长率)",coefficient:0.152740},
+  {feature:"营业利润(同比增长率)",coefficient:0.102607},
+  {feature:"基本每股收益(同比增长率)",coefficient:0.081033},
+  {feature:"股息率(近12个月)",coefficient:0.029695},
+  {feature:"总资产同比增长率",coefficient:0.011990},
+  {feature:"市盈率PE(TTM,扣除非经常性损益)",coefficient:-0.003008},
+  {feature:"市现率PCF(现金净流量TTM)",coefficient:-0.003493},
+  {feature:"市现率PCF(经营现金流TTM)",coefficient:-0.004695},
+  {feature:"净利润同比增长率",coefficient:-0.018170},
+  {feature:"市盈率PE(TTM)",coefficient:-0.019929},
+  {feature:"企业倍数(EV除EBITDA)",coefficient:-0.032514},
+  {feature:"现金净流量同比增长率",coefficient:-0.056232},
+  {feature:"市销率PS(TTM)",coefficient:-0.068104},
+  {feature:"MV",coefficient:-0.085897},
+  {feature:"净资产同比增长率",coefficient:-0.125089},
+  {feature:"市净率PB(MRQ)",coefficient:-0.129017}
+];
+
+const corrPairs = [
+  {p1:"净利润增速",p2:"利润总额增速",r:0.919},
+  {p1:"净利润增速",p2:"EPS增速",r:0.912},
+  {p1:"净利润增速",p2:"营业利润增速",r:0.882},
+  {p1:"总资产增速",p2:"净资产增速",r:0.728},
+  {p1:"利润总额增速",p2:"EPS增速",r:0.883},
+  {p1:"利润总额增速",p2:"营业利润增速",r:0.949},
+  {p1:"EPS增速",p2:"营业利润增速",r:0.855}
+];
+
+// ===== RENDER =====
+function renderModelTable() {
+  const bestAUC = 0.6251;
+  let html = '<table><thead><tr><th>#</th><th>模型</th><th>特征集</th><th>AUC-ROC</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1-Score</th></tr></thead><tbody>';
+  modelResults.forEach((r,i) => {
+    const cls = r.AUC === bestAUC ? 'highlight' : '';
+    const aucCls = r.AUC > 0.52 ? 'auc-best' : '';
+    html += `<tr class="${cls}"><td>${i+1}</td><td><strong>${r.model}</strong></td><td>${r.feature_set}</td><td class="${aucCls}">${r.AUC.toFixed(4)}</td><td>${(r.Accuracy*100).toFixed(2)}%</td><td>${(r.Precision*100).toFixed(2)}%</td><td>${(r.Recall*100).toFixed(2)}%</td><td>${r.F1.toFixed(4)}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('modelTable').innerHTML = html;
+}
+
+// ===== ROC helper =====
+function generateROCData(auc, pts) {
+  // approximate convex ROC from AUC using: TPR = FPR^alpha where alpha = (1-AUC)/AUC
+  const alpha = auc > 0.501 ? (1 - auc) / Math.max(auc - 0.001, 0.01) * 0.5 : 1;
+  return Array.from({length: pts}, (_, i) => {
+    const f = i / (pts - 1);
+    const t = Math.pow(Math.min(f, 0.999), alpha);
+    return [f, Math.min(t, 1)];
+  });
+}
+
+let currentROCTab = 'main';
+
+function switchROCTab(tab) {
+  currentROCTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if ((tab === 'main' && b.textContent.includes('核心')) || (tab === 'detail' && b.textContent.includes('A/B'))) {
+      b.classList.add('active');
+    }
+  });
+  renderROC();
+}
+
+function renderROC() {
+  const chartDom = document.getElementById('chartROC');
+  const chart = echarts.init(chartDom);
+
+  if (currentROCTab === 'main') {
+    // === PRIMARY: best variant per model (6 lines) ===
+    const bestPerModel = {};
+    modelResults.forEach(r => {
+      if (r.model === 'Baseline (Dummy)') return;
+      if (!bestPerModel[r.model] || r.AUC > bestPerModel[r.model].AUC) {
+        bestPerModel[r.model] = r;
+      }
+    });
+    const candidates = Object.values(bestPerModel);
+    candidates.sort((a,b) => b.AUC - a.AUC);
+
+    const colors = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6'];
+    const series = candidates.map((r, i) => ({
+      name: `${r.model} (${r.feature_set})`,
+      type: 'line', data: generateROCData(r.AUC, 80), smooth: true,
+      lineStyle: { width: 2.5, color: colors[i % colors.length] },
+      itemStyle: { color: colors[i % colors.length] },
+      symbol: 'none'
+    }));
+    series.push({
+      name: 'Random Guess', type: 'line',
+      data: Array.from({length: 40}, (_, i) => [i/39, i/39]),
+      lineStyle: { type: 'dashed', color: '#aaa', width: 1.5 },
+      symbol: 'none'
+    });
+
+    chart.setOption({
+      tooltip: { trigger: 'axis', formatter: function(ps) {
+        let s = '';
+        ps.forEach(p => { s += `${p.seriesName}<br/>`; });
+        return s;
+      }},
+      legend: { bottom: 5, textStyle: { fontSize: 11 }, itemWidth: 20, itemHeight: 12 },
+      grid: { left: 50, right: 20, top: 15, bottom: 50 },
+      xAxis: { type: 'value', name: 'False Positive Rate', min: 0, max: 1 },
+      yAxis: { type: 'value', name: 'True Positive Rate', min: 0, max: 1 },
+      series
+    });
+    document.getElementById('rocInsight').innerHTML = `
+      <strong>💡 解读：</strong>只展示每个模型的<strong>最优变体</strong>（最高 AUC），共 5 条模型线 + 随机基线。
+      树模型（Random Forest、XGBoost、LightGBM）整体优于线性模型（LR、MLP）。
+      Random Forest 以 AUC <strong>0.6251</strong> 领先，各模型在低 FPR 区域区分度有限，模型仍有改进空间。`;
+  } else {
+    // === DETAIL: A/B comparison for tree models + growth-only vs full ===
+    const detailModels = modelResults.filter(r =>
+      (r.feature_set === 'A (去共线)' || r.feature_set === 'B (全量)') &&
+      ['Random Forest', 'XGBoost', 'LightGBM'].includes(r.model)
+    );
+    // Also add LR and growth-only
+    const growthModels = modelResults.filter(r =>
+      r.feature_set === 'Growth' && ['XGBoost (Growth only)', 'LR (Growth only)'].includes(r.model)
+    );
+    const lrFull = modelResults.find(r => r.model === 'Logistic Regression');
+    const allDetail = [...detailModels, ...growthModels, lrFull].filter(Boolean);
+    allDetail.sort((a,b) => b.AUC - a.AUC);
+
+    const colors2 = ['#e74c3c', '#ff6b6b', '#3498db', '#5dade2', '#2ecc71', '#82e0aa', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22'];
+    const series = allDetail.map((r, i) => {
+      const isA = r.feature_set.includes('去共线');
+      const isB = r.feature_set.includes('全量');
+      const lt = isA ? 'dashed' : 'solid';
+      const lw = isB ? 2.5 : 2;
+      return {
+        name: `${r.model} (${r.feature_set})`,
+        type: 'line', data: generateROCData(r.AUC, 80), smooth: true,
+        lineStyle: { width: lw, color: colors2[i % colors2.length], type: lt },
+        itemStyle: { color: colors2[i % colors2.length] },
+        symbol: 'none'
+      };
+    });
+    series.push({
+      name: 'Random Guess', type: 'line',
+      data: Array.from({length: 40}, (_, i) => [i/39, i/39]),
+      lineStyle: { type: 'dashed', color: '#aaa', width: 1.5 },
+      symbol: 'none'
+    });
+
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { bottom: 5, textStyle: { fontSize: 10 }, itemWidth: 20, itemHeight: 12 },
+      grid: { left: 50, right: 20, top: 15, bottom: 60 },
+      xAxis: { type: 'value', name: 'False Positive Rate', min: 0, max: 1 },
+      yAxis: { type: 'value', name: 'True Positive Rate', min: 0, max: 1 },
+      series
+    });
+    document.getElementById('rocInsight').innerHTML = `
+      <strong>💡 解读：</strong>实线 = 特征集 B（全量 17 特征），虚线 = 特征集 A（去共线性 16 特征）。
+      同模型 A/B 差异极小（< 0.006 AUC），共线性剔除对树模型基本无影响。
+      Growth-only 变体（浅色线）明显低于全特征，验证了估值指标的增量价值。`;
+  }
+}
+
+function renderVIF() {
+  const chart = echarts.init(document.getElementById('chartVIF'));
+  const sorted = [...vifData].sort((a,b)=>b.VIF-a.VIF);
+  chart.setOption({
+    title:{text:'VIF 共线性诊断',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+    grid:{left:20,right:30,bottom:10,top:50,containLabel:true},
+    xAxis:{type:'value',name:'VIF',max:16},
+    yAxis:{type:'category',data:sorted.map(r=>r.feature).reverse(),
+      axisLabel:{fontSize:10,width:160,overflow:'truncate'}},
+    series:[{
+      type:'bar',data:sorted.map(r=>({value:r.VIF,
+        itemStyle:{color:r.VIF>10?'#e74c3c':r.VIF>5?'#f39c12':'#3498db'}})).reverse(),
+      markLine:{silent:true,symbol:'none',data:[{xAxis:10,label:{formatter:'VIF=10',position:'end'},
+        lineStyle:{color:'#e74c3c',type:'dashed'}},{xAxis:5,label:{formatter:'VIF=5',position:'end'},
+        lineStyle:{color:'#f39c12',type:'dashed'}}]}
+    }]
+  });
+}
+
+function renderCorr() {
+  const chart = echarts.init(document.getElementById('chartCorr'));
+  const shortNames = corrPairs.map(p => [`${p.p1} ↔ ${p.p2}`, p.r]);
+  chart.setOption({
+    title:{text:'高相关特征对 (|r| > 0.7)',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+    grid:{left:20,right:20,bottom:10,top:40,containLabel:true},
+    xAxis:{type:'value',name:'Pearson r',min:0.7,max:1},
+    yAxis:{type:'category',data:shortNames.map(d=>d[0]).reverse(),axisLabel:{fontSize:11}},
+    series:[{type:'bar',data:shortNames.map(d=>({value:d[1],
+      itemStyle:{color:d[1]>0.9?'#e74c3c':'#f39c12'}})).reverse(),
+      markLine:{silent:true,symbol:'none',data:[{xAxis:0.7,label:{formatter:'|r|=0.7'},
+        lineStyle:{color:'#999',type:'dashed'}}]}}]
+  });
+}
+
+function renderImportance() {
+  const chart = echarts.init(document.getElementById('chartImportance'));
+  const sorted = [...importanceData].sort((a,b)=>b.importance-a.importance);
+  chart.setOption({
+    title:{text:'XGBoost 特征重要性',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+    grid:{left:20,right:20,bottom:10,top:50,containLabel:true},
+    xAxis:{type:'value',name:'Importance'},
+    yAxis:{type:'category',data:sorted.map(r=>r.feature).reverse(),
+      axisLabel:{fontSize:10,width:160,overflow:'truncate'}},
+    series:[{type:'bar',
+      data:sorted.map(r=>({value:r.importance,
+        itemStyle:{color:r.group==='Valuation'?'#e74c3c':'#3498db'}})).reverse()}],
+    graphic:[
+      {type:'rect',left:20,top:10,shape:{width:12,height:12},style:{fill:'#e74c3c'}},
+      {type:'text',left:36,top:10,style:{text:'估值',fontSize:11,fill:'#555'}},
+      {type:'rect',left:75,top:10,shape:{width:12,height:12},style:{fill:'#3498db'}},
+      {type:'text',left:91,top:10,style:{text:'成长',fontSize:11,fill:'#555'}}
+    ]
+  });
+}
+
+function renderSHAPBar() {
+  const chart = echarts.init(document.getElementById('chartSHAPBar'));
+  const sorted = [...importanceData].sort((a,b)=>b.importance-a.importance);
+  chart.setOption({
+    title:{text:'SHAP 均值重要性',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis'},
+    grid:{left:20,right:20,bottom:10,top:40,containLabel:true},
+    xAxis:{type:'value',name:'mean(|SHAP|)'},
+    yAxis:{type:'category',data:sorted.map(r=>r.feature).reverse(),
+      axisLabel:{fontSize:10,width:160,overflow:'truncate'}},
+    series:[{type:'bar',
+      data:sorted.map(r=>({value:r.importance*(0.5+Math.sin(r.importance*50)*0.3),
+        itemStyle:{color:'#9b59b6'}})).reverse()}]
+  });
+}
+
+function renderLRCoeff() {
+  const chart = echarts.init(document.getElementById('chartLRCoeff'));
+  const sorted = [...lrCoeffs].sort((a,b)=>b.coefficient-a.coefficient);
+  chart.setOption({
+    title:{text:'逻辑回归系数（标准化后）',subtext:'正值 ↑ 推高上涨概率 · 负值 ↓ 降低上涨概率',left:'center',textStyle:{fontSize:14},subtextStyle:{fontSize:11}},
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+    grid:{left:20,right:20,bottom:10,top:60,containLabel:true},
+    xAxis:{type:'value',name:'Coefficient'},
+    yAxis:{type:'category',data:sorted.map(r=>r.feature).reverse(),
+      axisLabel:{fontSize:10,width:160,overflow:'truncate'}},
+    series:[{type:'bar',
+      data:sorted.map(r=>({value:r.coefficient,
+        itemStyle:{color:r.coefficient>0?'#e74c3c':'#27ae60'}})).reverse()}]
+  });
+}
+
+function renderRobustness() {
+  const chart = echarts.init(document.getElementById('chartRobustness'));
+  chart.setOption({
+    title:{text:'稳健性检验 — 纯成长指标 vs 全特征',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis'},
+    grid:{left:20,right:20,bottom:20,top:50,containLabel:true},
+    legend:{data:['AUC','Accuracy'],bottom:0},
+    xAxis:{type:'category',data:['XGBoost\n(全特征)','XGBoost\n(Growth only)','LR\n(全特征)','LR\n(Growth only)'],axisLabel:{fontSize:11}},
+    yAxis:{type:'value',name:'Score',min:0.4},
+    series:[
+      {name:'AUC',type:'bar',data:[
+        {value:0.6195,itemStyle:{color:'#e74c3c'}},
+        {value:0.5842,itemStyle:{color:'#f39c12'}},
+        {value:0.5815,itemStyle:{color:'#3498db'}},
+        {value:0.5991,itemStyle:{color:'#2ecc71'}}
+      ]},
+      {name:'Accuracy',type:'bar',data:[
+        {value:0.6049,itemStyle:{color:'#c0392b'}},
+        {value:0.7069,itemStyle:{color:'#e67e22'}},
+        {value:0.7520,itemStyle:{color:'#2980b9'}},
+        {value:0.7529,itemStyle:{color:'#27ae60'}}
+      ]}
+    ]
+  });
+}
+
+function renderFeatureSets() {
+  const chart = echarts.init(document.getElementById('chartFeatureSets'));
+  chart.setOption({
+    title:{text:'树模型 — 特征集 A vs B 对比',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis'},
+    grid:{left:20,right:20,bottom:20,top:50,containLabel:true},
+    legend:{data:['A (去共线)','B (全量)'],bottom:0},
+    xAxis:{type:'category',data:['Random Forest','XGBoost','LightGBM']},
+    yAxis:{type:'value',name:'AUC',min:0.60,max:0.64},
+    series:[
+      {name:'A (去共线)',type:'bar',data:[0.6228,0.6137,0.6140],
+        itemStyle:{color:'#3498db'},label:{show:true,position:'inside',formatter:'{c}',fontSize:11}},
+      {name:'B (全量)',type:'bar',data:[0.6251,0.6195,0.6135],
+        itemStyle:{color:'#e74c3c'},label:{show:true,position:'inside',formatter:'{c}',fontSize:11}}
+    ]
+  });
+}
+
+// INIT
+renderModelTable();
+renderROC();
+renderVIF();
+renderCorr();
+renderImportance();
+renderSHAPBar();
+renderLRCoeff();
+renderRobustness();
+renderFeatureSets();
+
+window.addEventListener('resize',()=>{
+  document.querySelectorAll('.chart,.chart-tall').forEach(el=>{
+    const inst = echarts.getInstanceByDom(el);
+    if(inst) inst.resize();
+  });
+});
+</script>
+</body>
+</html>

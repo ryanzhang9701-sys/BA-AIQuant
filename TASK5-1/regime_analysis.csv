@@ -1,0 +1,4 @@
+﻿Regime,Samples,AUC,Accuracy,Y_ratio
+Bull (>median),0,,,
+Bear (<=median),4262,0.6195,0.6049,0.189
+Overall,4262,0.6195,0.6049,0.189
