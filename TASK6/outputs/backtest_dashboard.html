@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>量化选股 ML 回测看板</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f5f6f8;color:#333}
+.header{background:#fff;border-bottom:1px solid #e8e8e8;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.header h1{font-size:16px;font-weight:600;color:#1a1a2e}
+.header-right{display:flex;gap:12px;align-items:center}
+.header select{padding:6px 10px;border:1px solid #d9d9d9;border-radius:6px;font-size:13px;outline:none;background:#fff;cursor:pointer}
+.header select:focus{border-color:#4a7dff}
+.header .preset-tabs{display:flex;gap:0}
+.header .preset-tab{padding:6px 16px;border:1px solid #d9d9d9;background:#fff;font-size:12px;cursor:pointer;color:#666;transition:all 0.2s}
+.header .preset-tab:first-child{border-radius:6px 0 0 6px}
+.header .preset-tab:last-child{border-radius:0 6px 6px 0}
+.header .preset-tab.active{background:#eef2ff;border-color:#4a7dff;color:#4a7dff;font-weight:500}
+.container{max-width:1200px;margin:0 auto;padding:16px 20px}
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.kpi-card{background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:12px}
+.kpi-card .label{font-size:11px;color:#999}
+.kpi-card .value{font-size:22px;font-weight:700;color:#1a1a2e;margin-top:2px}
+.kpi-card .sub{font-size:10px;color:#bbb}
+
+.panel{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:16px;margin-bottom:14px}
+.panel h2{font-size:14px;font-weight:600;color:#1a1a2e;margin-bottom:12px}
+.chart{width:100%;height:350px}
+
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#fafbfc;padding:8px 10px;border-bottom:2px solid #e8e8e8;text-align:left;color:#888;font-weight:500;white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#555}
+tr:hover td{background:#fafbfc}
+tr.best td{background:#f0fbe8;font-weight:500}
+
+.coef-section{margin-bottom:20px}
+.coef-section h3{font-size:13px;font-weight:600;color:#333;margin-bottom:8px}
+.coef-bar{display:flex;align-items:center;gap:8px;padding:2px 0;font-size:11px}
+.coef-bar .fname{width:140px;text-align:right;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.coef-bar .bar-wrap{flex:1;height:14px;background:#f0f0f0;border-radius:3px;overflow:hidden}
+.coef-bar .bar-fill{height:100%;border-radius:3px}
+.coef-bar .bar-val{width:50px;font-size:11px;text-align:right;font-family:monospace}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}.kpi-row{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<div class="header">
+<h1>量化选股 ML 回测看板</h1>
+<div class="header-right">
+<div class="preset-tabs" id="presetTabs"></div>
+<select id="modelSelect"></select>
+</div>
+</div>
+<div class="container">
+
+<div class="panel" id="strategyPanel" style="padding:12px 16px;font-size:12px;color:#666"></div>
+<div class="kpi-row" id="kpiRow"></div>
+
+<div class="grid2">
+<div class="panel"><h2>累计净值</h2><div class="chart" id="navChart"></div></div>
+<div class="panel"><h2>季度收益</h2><div class="chart" id="perfChart"></div></div>
+</div>
+
+<div class="panel"><h2>模型对比</h2><div id="compTable"></div></div>
+
+<div class="panel"><h2>模型详情 — <span id="detailModelName"></span></h2>
+<div id="modelDetail"></div></div>
+</div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+var ALL_DATA = {"保守": {"summary": [{"model": "Logistic", "cumRet": 0.0564, "meanRet": 0.0111, "sharpe": 1.85, "maxdd": 0.0049, "winRate": "4/5", "avgN": 6.0, "nav_series": [1, 0.9951, 1.005, 1.03, 1.0552, 1.0564]}, {"model": "RandomForest", "cumRet": 0.0747, "meanRet": 0.0152, "sharpe": 0.79, "maxdd": 0.048, "winRate": "3/5", "avgN": 8.0, "nav_series": [1, 1.0554, 1.1134, 1.06, 1.06, 1.0747]}, {"model": "XGBoost", "cumRet": 0.0755, "meanRet": 0.0158, "sharpe": 0.65, "maxdd": 0.0502, "winRate": "3/5", "avgN": 8.0, "nav_series": [1, 1.0232, 1.1267, 1.0701, 1.0701, 1.0755]}, {"model": "LightGBM", "cumRet": -0.0051, "meanRet": -0.0007, "sharpe": -0.05, "maxdd": 0.0518, "winRate": "4/5", "avgN": 8.0, "nav_series": [1, 1.0197, 1.0315, 0.978, 0.9866, 0.9949]}], "by_window": {"W1": [{"window": "W1", "model": "Logistic", "ret": -0.004872, "n": 10, "avg_p": 0.6692}, {"window": "W1", "model": "RandomForest", "ret": 0.055413, "n": 10, "avg_p": 0.683}, {"window": "W1", "model": "XGBoost", "ret": 0.023157, "n": 10, "avg_p": 0.679}, {"window": "W1", "model": "LightGBM", "ret": 0.019665, "n": 10, "avg_p": 0.6997}], "W2": [{"window": "W2", "model": "Logistic", "ret": 0.009969, "n": 10, "avg_p": 0.8411}, {"window": "W2", "model": "RandomForest", "ret": 0.054966, "n": 10, "avg_p": 0.7793}, {"window": "W2", "model": "XGBoost", "ret": 0.101154, "n": 10, "avg_p": 0.8052}, {"window": "W2", "model": "LightGBM", "ret": 0.011592, "n": 10, "avg_p": 0.8024}], "W3": [{"window": "W3", "model": "Logistic", "ret": 0.02481, "n": 10, "avg_p": 0.7406}, {"window": "W3", "model": "RandomForest", "ret": -0.047982, "n": 10, "avg_p": 0.744}, {"window": "W3", "model": "XGBoost", "ret": -0.050172, "n": 10, "avg_p": 0.7616}, {"window": "W3", "model": "LightGBM", "ret": -0.05181, "n": 10, "avg_p": 0.7474}], "W4": [{"window": "W4", "model": "Logistic", "ret": 0.024486, "n": 1, "avg_p": 0.6563}, {"window": "W4", "model": "RandomForest", "ret": 0, "n": 0, "avg_p": 0}, {"window": "W4", "model": "XGBoost", "ret": 0, "n": 0, "avg_p": 0}, {"window": "W4", "model": "LightGBM", "ret": 0.008754, "n": 2, "avg_p": 0.6849}], "W5": [{"window": "W5", "model": "Logistic", "ret": 0.001116, "n": 1, "avg_p": 0.6892}, {"window": "W5", "model": "RandomForest", "ret": 0.01383, "n": 10, "avg_p": 0.692}, {"window": "W5", "model": "XGBoost", "ret": 0.005061, "n": 10, "avg_p": 0.7155}, {"window": "W5", "model": "LightGBM", "ret": 0.008454, "n": 10, "avg_p": 0.7043}]}, "strategy": {"T_buy": 0.65, "T_sell": 0.5, "alpha": 0.25, "cap_stock": 0.03, "N_max": 10, "beta": 0.4}}, "中性": {"summary": [{"model": "Logistic", "cumRet": 0.1373, "meanRet": 0.0263, "sharpe": 2.37, "maxdd": 0.0025, "winRate": "4/5", "avgN": 16.0, "nav_series": [1, 1.0121, 1.0095, 1.0686, 1.1163, 1.1373]}, {"model": "XGBoost", "cumRet": 0.107, "meanRet": 0.0227, "sharpe": 0.69, "maxdd": 0.0809, "winRate": "3/5", "avgN": 16.0, "nav_series": [1, 1.0634, 1.1877, 1.0917, 1.0917, 1.107]}, {"model": "RandomForest", "cumRet": 0.0681, "meanRet": 0.0164, "sharpe": 0.42, "maxdd": 0.1221, "winRate": "3/5", "avgN": 16.0, "nav_series": [1, 1.0986, 1.1892, 1.044, 1.044, 1.0681]}, {"model": "LightGBM", "cumRet": 0.0551, "meanRet": 0.0129, "sharpe": 0.4, "maxdd": 0.0998, "winRate": "4/5", "avgN": 17.0, "nav_series": [1, 1.101, 1.1233, 1.0112, 1.0435, 1.0551]}], "by_window": {"W1": [{"window": "W1", "model": "Logistic", "ret": 0.012114, "n": 20, "avg_p": 0.6628}, {"window": "W1", "model": "RandomForest", "ret": 0.098568, "n": 20, "avg_p": 0.6819}, {"window": "W1", "model": "XGBoost", "ret": 0.063444, "n": 20, "avg_p": 0.6745}, {"window": "W1", "model": "LightGBM", "ret": 0.100983, "n": 20, "avg_p": 0.6926}], "W2": [{"window": "W2", "model": "Logistic", "ret": -0.002544, "n": 20, "avg_p": 0.8237}, {"window": "W2", "model": "RandomForest", "ret": 0.082503, "n": 20, "avg_p": 0.7634}, {"window": "W2", "model": "XGBoost", "ret": 0.116853, "n": 20, "avg_p": 0.7803}, {"window": "W2", "model": "LightGBM", "ret": 0.020289, "n": 20, "avg_p": 0.7802}], "W3": [{"window": "W3", "model": "Logistic", "ret": 0.058548, "n": 20, "avg_p": 0.7374}, {"window": "W3", "model": "RandomForest", "ret": -0.122109, "n": 20, "avg_p": 0.7428}, {"window": "W3", "model": "XGBoost", "ret": -0.080865, "n": 20, "avg_p": 0.7583}, {"window": "W3", "model": "LightGBM", "ret": -0.09978, "n": 20, "avg_p": 0.7454}], "W4": [{"window": "W4", "model": "Logistic", "ret": 0.044635, "n": 2, "avg_p": 0.6291}, {"window": "W4", "model": "RandomForest", "ret": 0, "n": 0, "avg_p": 0}, {"window": "W4", "model": "XGBoost", "ret": 0, "n": 0, "avg_p": 0}, {"window": "W4", "model": "LightGBM", "ret": 0.03188, "n": 5, "avg_p": 0.6468}], "W5": [{"window": "W5", "model": "Logistic", "ret": 0.018774, "n": 20, "avg_p": 0.6262}, {"window": "W5", "model": "RandomForest", "ret": 0.02307, "n": 20, "avg_p": 0.6741}, {"window": "W5", "model": "XGBoost", "ret": 0.014007, "n": 20, "avg_p": 0.6983}, {"window": "W5", "model": "LightGBM", "ret": 0.011148, "n": 20, "avg_p": 0.6903}]}, "strategy": {"T_buy": 0.6, "T_sell": 0.5, "alpha": 0.5, "cap_stock": 0.05, "N_max": 20, "beta": 0.6}}, "激进": {"summary": [{"model": "Logistic", "cumRet": 0.289, "meanRet": 0.053, "sharpe": 2.44, "maxdd": 0.008, "winRate": "4/5", "avgN": 26.0, "nav_series": [1, 1.0514, 1.0431, 1.1045, 1.2442, 1.289]}, {"model": "LightGBM", "cumRet": 0.1736, "meanRet": 0.04, "sharpe": 0.67, "maxdd": 0.1781, "winRate": "4/5", "avgN": 26.0, "nav_series": [1, 1.1462, 1.3083, 1.0753, 1.1616, 1.1736]}, {"model": "XGBoost", "cumRet": 0.1122, "meanRet": 0.0265, "sharpe": 0.54, "maxdd": 0.1502, "winRate": "4/5", "avgN": 25.0, "nav_series": [1, 1.0989, 1.2501, 1.0624, 1.0892, 1.1122]}, {"model": "RandomForest", "cumRet": 0.0882, "meanRet": 0.0261, "sharpe": 0.4, "maxdd": 0.2143, "winRate": "4/5", "avgN": 25.0, "nav_series": [1, 1.1589, 1.2968, 1.0188, 1.0531, 1.0882]}], "by_window": {"W1": [{"window": "W1", "model": "Logistic", "ret": 0.051417, "n": 30, "avg_p": 0.659}, {"window": "W1", "model": "RandomForest", "ret": 0.158853, "n": 30, "avg_p": 0.6809}, {"window": "W1", "model": "XGBoost", "ret": 0.098923, "n": 30, "avg_p": 0.6714}, {"window": "W1", "model": "LightGBM", "ret": 0.146197, "n": 30, "avg_p": 0.6889}], "W2": [{"window": "W2", "model": "Logistic", "ret": -0.007953, "n": 30, "avg_p": 0.8095}, {"window": "W2", "model": "RandomForest", "ret": 0.119037, "n": 30, "avg_p": 0.753}, {"window": "W2", "model": "XGBoost", "ret": 0.1376, "n": 30, "avg_p": 0.7662}, {"window": "W2", "model": "LightGBM", "ret": 0.14141, "n": 30, "avg_p": 0.7677}], "W3": [{"window": "W3", "model": "Logistic", "ret": 0.0589, "n": 30, "avg_p": 0.7356}, {"window": "W3", "model": "RandomForest", "ret": -0.21434, "n": 30, "avg_p": 0.7418}, {"window": "W3", "model": "XGBoost", "ret": -0.15016, "n": 30, "avg_p": 0.7563}, {"window": "W3", "model": "LightGBM", "ret": -0.17808, "n": 30, "avg_p": 0.7441}], "W4": [{"window": "W4", "model": "Logistic", "ret": 0.12648, "n": 8, "avg_p": 0.5856}, {"window": "W4", "model": "RandomForest", "ret": 0.033576, "n": 7, "avg_p": 0.5752}, {"window": "W4", "model": "XGBoost", "ret": 0.025184, "n": 3, "avg_p": 0.5797}, {"window": "W4", "model": "LightGBM", "ret": 0.080224, "n": 11, "avg_p": 0.6092}], "W5": [{"window": "W5", "model": "Logistic", "ret": 0.036017, "n": 30, "avg_p": 0.6193}, {"window": "W5", "model": "RandomForest", "ret": 0.033357, "n": 30, "avg_p": 0.6637}, {"window": "W5", "model": "XGBoost", "ret": 0.021163, "n": 30, "avg_p": 0.687}, {"window": "W5", "model": "LightGBM", "ret": 0.010377, "n": 30, "avg_p": 0.6814}]}, "strategy": {"T_buy": 0.55, "T_sell": 0.45, "alpha": 1.0, "cap_stock": 0.08, "N_max": 30, "beta": 1.0}}};
+var MODEL_INFO = {"feature_names": ["EV_EBITDA", "PB", "PCF_NetCash", "PCF_Operating", "PE_TTM", "PE_TTM_Deducted", "PS_TTM", "Dividend_Yield", "MV", "Profit_Growth", "NetAsset_Growth", "TotalProfit_Growth", "EPS_Growth", "TotalAsset_Growth", "NetCash_Growth", "OperatingCF_Growth", "OperatingProfit_Growth", "Revenue1_Growth", "Revenue2_Growth", "MV_Log", "R_PE", "R_PB", "R_PS", "R_EV", "R_Profit_Growth", "R_Revenue_Growth", "R_Dividend", "R_MV", "Value_Composite", "Growth_Composite", "GARP_Signal", "Quality_Score"], "models": {"Logistic": {"type": "coefficients", "data": [{"feature": "R_Profit_Growth", "coef": 0.556541}, {"feature": "Growth_Composite", "coef": 0.439103}, {"feature": "R_Revenue_Growth", "coef": 0.321664}, {"feature": "Quality_Score", "coef": 0.287507}, {"feature": "GARP_Signal", "coef": 0.224759}, {"feature": "R_MV", "coef": 0.22437}, {"feature": "MV_Log", "coef": -0.193723}, {"feature": "R_EV", "coef": 0.134375}, {"feature": "Dividend_Yield", "coef": 0.101673}, {"feature": "R_PS", "coef": -0.056741}, {"feature": "R_PE", "coef": -0.052542}, {"feature": "PB", "coef": -0.021711}, {"feature": "R_PB", "coef": 0.016566}, {"feature": "R_Dividend", "coef": -0.015686}, {"feature": "Value_Composite", "coef": 0.010414}, {"feature": "Revenue1_Growth", "coef": -0.008721}, {"feature": "PS_TTM", "coef": -0.007455}, {"feature": "TotalAsset_Growth", "coef": 0.003016}, {"feature": "Revenue2_Growth", "coef": 0.002594}, {"feature": "NetAsset_Growth", "coef": -0.002468}, {"feature": "EV_EBITDA", "coef": -0.000606}, {"feature": "MV", "coef": 0.000575}, {"feature": "EPS_Growth", "coef": 0.000249}, {"feature": "PCF_Operating", "coef": 0.000142}, {"feature": "TotalProfit_Growth", "coef": -0.000118}, {"feature": "OperatingCF_Growth", "coef": -5.5e-05}, {"feature": "OperatingProfit_Growth", "coef": -5.1e-05}, {"feature": "PE_TTM_Deducted", "coef": 3.5e-05}, {"feature": "NetCash_Growth", "coef": -2.2e-05}, {"feature": "PCF_NetCash", "coef": 4e-06}, {"feature": "Profit_Growth", "coef": -3e-06}, {"feature": "PE_TTM", "coef": -2e-06}]}, "RandomForest": {"type": "feature_importance", "data": [{"feature": "GARP_Signal", "importance": 0.27249}, {"feature": "R_Revenue_Growth", "importance": 0.094018}, {"feature": "Revenue1_Growth", "importance": 0.079486}, {"feature": "Quality_Score", "importance": 0.072835}, {"feature": "Revenue2_Growth", "importance": 0.065749}, {"feature": "R_Profit_Growth", "importance": 0.055026}, {"feature": "R_MV", "importance": 0.049904}, {"feature": "PB", "importance": 0.037458}, {"feature": "EV_EBITDA", "importance": 0.033059}, {"feature": "Growth_Composite", "importance": 0.030074}, {"feature": "Profit_Growth", "importance": 0.022683}, {"feature": "PCF_Operating", "importance": 0.014534}, {"feature": "R_PB", "importance": 0.012854}, {"feature": "PE_TTM", "importance": 0.011602}, {"feature": "PS_TTM", "importance": 0.011294}, {"feature": "NetAsset_Growth", "importance": 0.010216}, {"feature": "MV_Log", "importance": 0.00979}, {"feature": "TotalAsset_Growth", "importance": 0.009249}, {"feature": "R_PS", "importance": 0.008935}, {"feature": "PE_TTM_Deducted", "importance": 0.008929}, {"feature": "R_EV", "importance": 0.008817}, {"feature": "TotalProfit_Growth", "importance": 0.008786}, {"feature": "EPS_Growth", "importance": 0.008769}, {"feature": "Dividend_Yield", "importance": 0.008393}, {"feature": "NetCash_Growth", "importance": 0.008263}, {"feature": "OperatingProfit_Growth", "importance": 0.007812}, {"feature": "MV", "importance": 0.007653}, {"feature": "PCF_NetCash", "importance": 0.007465}, {"feature": "OperatingCF_Growth", "importance": 0.007346}, {"feature": "R_PE", "importance": 0.006584}, {"feature": "R_Dividend", "importance": 0.005058}, {"feature": "Value_Composite", "importance": 0.004868}]}, "XGBoost": {"type": "feature_importance", "data": [{"feature": "GARP_Signal", "importance": 0.100434}, {"feature": "Quality_Score", "importance": 0.06741}, {"feature": "R_Profit_Growth", "importance": 0.051448}, {"feature": "R_Revenue_Growth", "importance": 0.046186}, {"feature": "Revenue2_Growth", "importance": 0.041091}, {"feature": "PB", "importance": 0.040135}, {"feature": "Profit_Growth", "importance": 0.040029}, {"feature": "EV_EBITDA", "importance": 0.036804}, {"feature": "Revenue1_Growth", "importance": 0.035125}, {"feature": "Growth_Composite", "importance": 0.032809}, {"feature": "R_MV", "importance": 0.03202}, {"feature": "R_PB", "importance": 0.031606}, {"feature": "R_PS", "importance": 0.029873}, {"feature": "Value_Composite", "importance": 0.027963}, {"feature": "R_EV", "importance": 0.027874}, {"feature": "MV", "importance": 0.026237}, {"feature": "R_PE", "importance": 0.026118}, {"feature": "TotalProfit_Growth", "importance": 0.025485}, {"feature": "EPS_Growth", "importance": 0.023612}, {"feature": "PS_TTM", "importance": 0.023488}, {"feature": "NetAsset_Growth", "importance": 0.021608}, {"feature": "OperatingProfit_Growth", "importance": 0.021574}, {"feature": "PE_TTM_Deducted", "importance": 0.020874}, {"feature": "Dividend_Yield", "importance": 0.020635}, {"feature": "MV_Log", "importance": 0.019839}, {"feature": "NetCash_Growth", "importance": 0.019633}, {"feature": "PCF_Operating", "importance": 0.019567}, {"feature": "PE_TTM", "importance": 0.018743}, {"feature": "OperatingCF_Growth", "importance": 0.018741}, {"feature": "PCF_NetCash", "importance": 0.018656}, {"feature": "TotalAsset_Growth", "importance": 0.018075}, {"feature": "R_Dividend", "importance": 0.016306}]}, "LightGBM": {"type": "feature_importance", "data": [{"feature": "MV", "importance": 160.0}, {"feature": "R_Revenue_Growth", "importance": 148.0}, {"feature": "R_MV", "importance": 145.0}, {"feature": "Revenue1_Growth", "importance": 144.0}, {"feature": "R_Profit_Growth", "importance": 125.0}, {"feature": "NetCash_Growth", "importance": 120.0}, {"feature": "Revenue2_Growth", "importance": 120.0}, {"feature": "Profit_Growth", "importance": 113.0}, {"feature": "EV_EBITDA", "importance": 109.0}, {"feature": "PB", "importance": 109.0}, {"feature": "Growth_Composite", "importance": 96.0}, {"feature": "NetAsset_Growth", "importance": 94.0}, {"feature": "PCF_Operating", "importance": 92.0}, {"feature": "OperatingCF_Growth", "importance": 90.0}, {"feature": "Quality_Score", "importance": 90.0}, {"feature": "R_EV", "importance": 84.0}, {"feature": "R_PS", "importance": 81.0}, {"feature": "PE_TTM_Deducted", "importance": 79.0}, {"feature": "GARP_Signal", "importance": 78.0}, {"feature": "R_PB", "importance": 76.0}, {"feature": "PS_TTM", "importance": 75.0}, {"feature": "TotalAsset_Growth", "importance": 75.0}, {"feature": "OperatingProfit_Growth", "importance": 69.0}, {"feature": "Dividend_Yield", "importance": 66.0}, {"feature": "PCF_NetCash", "importance": 63.0}, {"feature": "Value_Composite", "importance": 58.0}, {"feature": "R_PE", "importance": 57.0}, {"feature": "EPS_Growth", "importance": 46.0}, {"feature": "PE_TTM", "importance": 41.0}, {"feature": "TotalProfit_Growth", "importance": 40.0}, {"feature": "R_Dividend", "importance": 36.0}, {"feature": "MV_Log", "importance": 21.0}]}}};
+var colors = {'Logistic':'#7F77DD','RandomForest':'#378ADD','XGBoost':'#639922','LightGBM':'#1D9E75'};
+var WINDOWS = ['W1','W2','W3','W4','W5'];
+var currentPreset = '保守';
+var currentModel = 'Logistic';
+
+function initUI(){
+  var presetTabs = document.getElementById('presetTabs');
+  Object.keys(ALL_DATA).forEach(function(p){
+    var tab = document.createElement('div');
+    tab.className = 'preset-tab' + (p===currentPreset?' active':'');
+    tab.textContent = p;
+    tab.onclick = function(){ switchPreset(p); };
+    presetTabs.appendChild(tab);
+  });
+
+  var sel = document.getElementById('modelSelect');
+  ['Logistic','RandomForest','XGBoost','LightGBM'].forEach(function(m){
+    var o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    sel.appendChild(o);
+  });
+  sel.value = currentModel;
+  sel.onchange = function(){ switchModel(this.value); };
+}
+
+function switchPreset(p){
+  currentPreset = p;
+  document.querySelectorAll('.preset-tab').forEach(function(t,i,a){ t.classList.toggle('active', t.textContent===p); });
+  updateAll();
+}
+
+function switchModel(m){
+  currentModel = m;
+  document.getElementById('modelSelect').value = m;
+  updateAll();
+}
+
+function updateAll(){
+  var data = ALL_DATA[currentPreset];
+  var s = data.summary;
+  var sel = s.find(function(r){return r.model===currentModel;}) || s[0];
+  document.getElementById('strategyPanel').innerHTML = '策略: <b>'+currentPreset+'</b> | T_buy='+data.strategy.T_buy+' T_sell='+data.strategy.T_sell+' alpha='+data.strategy.alpha+' cap='+data.strategy.cap_stock+' N='+data.strategy.N_max+' beta='+data.strategy.beta;
+  updateKPIs(sel);
+  updateNavChart(s, sel);
+  updatePerfChart(data.by_window);
+  updateCompTable(s, sel);
+  updateModelDetail(sel);
+}
+
+function updateKPIs(sel){
+  document.getElementById('kpiRow').innerHTML = [
+    {l:'累计收益', v:(sel.cumRet*100).toFixed(2)+'%'},
+    {l:'季度均值', v:(sel.meanRet*100).toFixed(2)+'%'},
+    {l:'Sharpe', v:sel.sharpe.toFixed(2)},
+    {l:'最大回撤', v:(sel.maxdd*100).toFixed(2)+'%'},
+    {l:'胜率', v:sel.winRate},
+  ].map(function(k){return '<div class="kpi-card"><div class="label">'+k.l+'</div><div class="value">'+k.v+'</div></div>';}).join('');
+}
+
+function updateNavChart(summary, sel){
+  var allVals = [];
+  var series = summary.map(function(r){
+    var data = r.nav_series.map(function(v){ return Math.round(v*10000); });
+    allVals = allVals.concat(data);
+    return {name:r.model, type:'line', data:data, smooth:true,
+      lineStyle:{color:colors[r.model],width:r.model===currentModel?3:1.5},
+      itemStyle:{color:colors[r.model]}, symbolSize:r.model===currentModel?7:4,
+      symbol:r.model===currentModel?'circle':'none'};
+  });
+  var yMin = Math.floor(Math.min.apply(null, allVals)/200)*200;
+  var yMax = Math.ceil(Math.max.apply(null, allVals)/200)*200;
+  var chart = echarts.init(document.getElementById('navChart'));
+  chart.setOption({
+    tooltip:{trigger:'axis',valueFormatter:function(v){return '¥'+v.toLocaleString();}},
+    legend:{top:0,textStyle:{fontSize:11}},
+    xAxis:{type:'category',data:['Start'].concat(WINDOWS)},
+    yAxis:{type:'value',name:'净值',min:yMin,max:yMax,axisLabel:{formatter:function(v){return '¥'+(v/1000).toFixed(0)+'k';}}},
+    series:series, grid:{left:70,right:20,top:35,bottom:35}
+  });
+}
+
+function updatePerfChart(byWindow){
+  var series = ['Logistic','RandomForest','XGBoost','LightGBM'].map(function(m){
+    var data = WINDOWS.map(function(w){
+      var wr = byWindow[w] || [];
+      var r = wr.filter(function(d){return d.model===m;});
+      return r.length>0 ? parseFloat((r[0].ret*100).toFixed(2)) : 0;
+    });
+    return {name:m, type:'bar', data:data, itemStyle:{color:colors[m]}, barGap:'20%'};
+  });
+  var chart = echarts.init(document.getElementById('perfChart'));
+  chart.setOption({
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'},valueFormatter:function(v){return v+'%'}},
+    legend:{top:0,textStyle:{fontSize:11}},
+    xAxis:{type:'category',data:WINDOWS},
+    yAxis:{type:'value',name:'季度收益 (%)'},
+    series:series, grid:{left:55,right:20,top:35,bottom:35}
+  });
+}
+
+function updateCompTable(summary, sel){
+  var html = '<table><thead><tr><th></th><th>累计收益</th><th>均值/季</th><th>Sharpe</th><th>最大回撤</th><th>胜率</th><th>平均持仓</th><th>解读</th></tr></thead><tbody>';
+  var comments = {
+    'Logistic':'线性模型最稳，系数可解释，胜率高回撤低，适合保守策略。简单因子线性组合即有不错表现。',
+    'RandomForest':'Bagging集成，对异常值鲁棒。GARP信号贡献最高，但波动较大，部分窗口过度集中。',
+    'XGBoost':'梯度提升主力，整体均衡。GARP与质量因子并重，但概率偏保守导致某些窗口选股不足。',
+    'LightGBM':'速度最快但回撤偏大。极度依赖MV和成长因子，可能过度暴露于小盘成长风格。',
+  };
+  summary.forEach(function(r){
+    var isSel = r.model === sel.model;
+    html += '<tr'+(isSel?' class="best"':'')+'><td style="font-weight:500">'+(isSel?'* ':'')+r.model+'</td>'+
+      '<td>'+(r.cumRet*100).toFixed(2)+'%</td><td>'+(r.meanRet*100).toFixed(2)+'%</td>'+
+      '<td>'+r.sharpe.toFixed(2)+'</td><td>'+(r.maxdd*100).toFixed(2)+'%</td>'+
+      '<td>'+r.winRate+'</td><td>'+r.avgN+'</td>'+
+      '<td style="font-size:11px;color:#888;max-width:280px">'+(comments[r.model]||'')+'</td></tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('compTable').innerHTML = html;
+}
+
+function renderCoefBars(containerId, data, type){
+  if(!data || data.length===0){ document.getElementById(containerId).innerHTML='<p style="color:#999;font-size:11px">无数据</p>'; return; }
+  var maxV = Math.max.apply(null, data.map(function(d){ return type==='coef'?Math.abs(d.coef):d.importance; }));
+  var top = data.slice(0,12);
+  var html = '';
+  top.forEach(function(d){
+    var v = type==='coef'?d.coef:d.importance;
+    var pct = maxV>0?(Math.abs(v)/maxV*100):0;
+    var c = type==='coef'?(v>=0?'#639922':'#e24b4a'):'#4a7dff';
+    html += '<div class="coef-bar"><span class="fname" title="'+d.feature+'">'+d.feature+'</span>'+
+      '<div class="bar-wrap"><div class="bar-fill" style="width:'+pct+'%;background:'+c+'"></div></div>'+
+      '<span class="bar-val" style="color:'+c+'">'+v.toFixed(4)+'</span></div>';
+  });
+  document.getElementById(containerId).innerHTML = html;
+}
+
+function updateModelDetail(sel){
+  var m = sel.model;
+  document.getElementById('detailModelName').textContent = m;
+  var info = MODEL_INFO.models[m];
+  if(!info){ document.getElementById('modelDetail').innerHTML='<p style="color:#999">无详情</p>'; return; }
+  var title = info.type==='coefficients'?'回归系数':'特征重要性';
+  var html = '<div class="coef-section"><h3>'+title+' Top 12</h3><div id="coefBars"></div></div>';
+  document.getElementById('modelDetail').innerHTML = html;
+  renderCoefBars('coefBars', info.data, info.type==='coefficients'?'coef':'imp');
+  document.getElementById('modelDetail').classList.add('show');
+}
+
+initUI();
+updateAll();
+
+window.addEventListener('resize', function(){
+  ['navChart','perfChart'].forEach(function(id){
+    var inst = echarts.getInstanceByDom(document.getElementById(id));
+    if(inst) inst.resize();
+  });
+});
+</script>
+</body>
+</html>

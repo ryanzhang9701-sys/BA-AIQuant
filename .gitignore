@@ -27,3 +27,6 @@ build_html.py
 # Data files (from tushare/akshare, too large)
 data/
 *.csv
+
+# TASK6 generated JSON (large)
+TASK6/outputs/*.json

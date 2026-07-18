@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据集描述性统计分析</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  background: #f5f6f8;
+  color: #333;
+  min-height: 100vh;
+}
+.header {
+  background: #fff;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.header h1 { font-size: 18px; font-weight: 600; color: #1a1a2e; }
+.header-right { display: flex; gap: 8px; }
+.btn {
+  padding: 7px 16px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  color: #555;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn:hover { border-color: #4a7dff; color: #4a7dff; }
+.btn-primary { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+.btn-primary:hover { background: #3a6ae8; color: #fff; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+.export-dropdown { position: relative; display: inline-block; }
+.export-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  min-width: 180px;
+  z-index: 200;
+  padding: 4px 0;
+}
+.export-menu.show { display: block; }
+.export-menu .menu-item {
+  padding: 9px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #555;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+}
+.export-menu .menu-item:hover { background: #f5f6f8; color: #4a7dff; }
+
+/* Upload area */
+.upload-container { padding: 20px 24px 0; }
+.upload-zone {
+  border: 2px dashed #d0d5dd;
+  border-radius: 10px;
+  padding: 32px;
+  text-align: center;
+  background: #fafbfc;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.upload-zone:hover, .upload-zone.dragover { border-color: #4a7dff; background: #f0f4ff; }
+.upload-zone p { color: #888; font-size: 14px; margin-top: 8px; }
+.upload-zone .icon { font-size: 36px; color: #b0b8c8; }
+.upload-info { display: flex; gap: 12px; margin-top: 10px; font-size: 13px; color: #666; align-items: center; }
+.upload-info .file-tag { background: #eef2ff; color: #4a7dff; padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+.upload-info .error-tag { background: #fff2f0; color: #e24b4a; padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+
+/* Sheet Selector Modal */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.show { display: flex; }
+.modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 440px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+}
+.modal-box h3 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #1a1a2e; }
+.modal-box .sheet-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.modal-box .sheet-option {
+  padding: 10px 14px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #555;
+  background: #fafbfc;
+  transition: all 0.15s;
+}
+.modal-box .sheet-option:hover { border-color: #4a7dff; background: #f0f4ff; }
+.modal-box .sheet-option.selected { border-color: #4a7dff; background: #eef2ff; color: #4a7dff; }
+.modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* KPI cards */
+.kpi-row { padding: 16px 24px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.kpi-card {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 14px 18px;
+}
+.kpi-card .label { font-size: 12px; color: #999; margin-bottom: 4px; }
+.kpi-card .value { font-size: 26px; font-weight: 700; color: #1a1a2e; }
+.kpi-card .sub { font-size: 11px; color: #bbb; margin-top: 2px; }
+
+/* Main layout */
+.main-layout { display: flex; padding: 0 24px 24px; gap: 16px; }
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 12px;
+  max-height: calc(100vh - 340px);
+  overflow-y: auto;
+  position: sticky;
+  top: 100px;
+}
+.sidebar input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-bottom: 10px;
+  outline: none;
+}
+.sidebar input:focus { border-color: #4a7dff; }
+.sidebar .var-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #555;
+  transition: all 0.15s;
+}
+.sidebar .var-item:hover { background: #f5f6f8; }
+.sidebar .var-item.active { background: #eef2ff; color: #4a7dff; font-weight: 500; }
+.sidebar .type-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.type-num { background: #e6f7ff; color: #1890ff; }
+.type-cat { background: #fff7e6; color: #fa8c16; }
+.sidebar .missing-dot { width: 7px; height: 7px; border-radius: 50%; background: #fa8c16; margin-left: auto; flex-shrink: 0; }
+
+/* Content area */
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+.chart-panel {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 16px;
+}
+.chart-panel h3 { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.chart-box { width: 100%; height: 300px; }
+
+.stats-panel {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 16px;
+  overflow-x: auto;
+}
+.stats-panel h3 { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; }
+.stats-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.stats-table th {
+  background: #fafbfc;
+  padding: 8px 12px;
+  border-bottom: 2px solid #e8e8e8;
+  text-align: left;
+  color: #888;
+  font-weight: 500;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+.stats-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  color: #555;
+  white-space: nowrap;
+}
+.stats-table tr:hover td { background: #fafbfc; }
+.stats-table .var-name { font-weight: 500; color: #333; }
+
+.corr-panel {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 16px;
+}
+.corr-panel h3 { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; }
+
+.placeholder {
+  text-align: center;
+  padding: 60px 20px;
+  color: #bbb;
+  font-size: 14px;
+}
+.placeholder .icon { font-size: 48px; margin-bottom: 12px; }
+
+.tooltip-note { font-size: 11px; color: #999; margin-top: 6px; font-style: italic; }
+
+@media (max-width: 900px) {
+  .main-layout { flex-direction: column; }
+  .sidebar { width: 100%; min-width: auto; max-height: 200px; position: static; }
+  .chart-row { grid-template-columns: 1fr; }
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>数据集描述性统计分析</h1>
+  <div class="header-right">
+    <button class="btn" onclick="document.getElementById('fileInput').click()">选择文件</button>
+    <div class="export-dropdown">
+      <button class="btn btn-primary" id="exportBtn" disabled onclick="toggleExportMenu()">导出</button>
+      <div class="export-menu" id="exportMenu">
+        <button class="menu-item" onclick="exportStatsCSV()">描述性统计表 (CSV)</button>
+        <button class="menu-item" onclick="exportCorrelationCSV()">相关性矩阵 (CSV)</button>
+        <button class="menu-item" onclick="exportCurrentChart()">当前图表 (PNG)</button>
+        <button class="menu-item" onclick="exportAllCharts()">全部图表打包 (ZIP)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="upload-container">
+  <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFileSelect(event)">
+  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+    <div class="icon">&#128196;</div>
+    <p>拖拽 CSV / Excel 文件到此处，或点击选择文件</p>
+    <p style="font-size:12px;color:#bbb;">支持 .csv / .xlsx / .xls</p>
+  </div>
+  <div class="upload-info" id="uploadInfo"></div>
+</div>
+
+<div class="kpi-row" id="kpiRow" style="display:none;"></div>
+
+<div class="main-layout" id="mainLayout" style="display:none;">
+  <div class="sidebar" id="sidebar">
+    <input type="text" id="varSearch" placeholder="搜索变量..." oninput="filterVariables()">
+    <div id="varList"></div>
+  </div>
+  <div class="content" id="contentArea">
+    <div class="placeholder">
+      <div class="icon">&#128202;</div>
+      <p>请上传数据文件开始分析</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+<script>
+let allData = [];
+let columns = [];
+let columnTypes = {};
+let statsCache = {};
+let activeVar = null;
+let rawFilename = '';
+
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const uploadInfo = document.getElementById('uploadInfo');
+const kpiRow = document.getElementById('kpiRow');
+const mainLayout = document.getElementById('mainLayout');
+const contentArea = document.getElementById('contentArea');
+const varList = document.getElementById('varList');
+const exportBtn = document.getElementById('exportBtn');
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) processFile(file);
+}
+
+function detectEncoding(buffer) {
+  try {
+    const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+    if (!utf8.includes('\ufffd')) return { encoding: 'utf-8', text: utf8 };
+  } catch(e) {}
+  try {
+    const gbk = new TextDecoder('gbk', { fatal: false }).decode(buffer);
+    return { encoding: 'gbk', text: gbk };
+  } catch(e) {}
+  try {
+    const gb2312 = new TextDecoder('gb2312', { fatal: false }).decode(buffer);
+    return { encoding: 'gb2312', text: gb2312 };
+  } catch(e) {}
+  const fallback = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+  return { encoding: 'utf-8', text: fallback };
+}
+
+function processFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  rawFilename = file.name;
+  if (ext === 'csv') {
+    const reader = new FileReader();
+    reader.onload = function() {
+      const buffer = new Uint8Array(reader.result);
+      const decoded = detectEncoding(buffer);
+      const parseResult = Papa.parse(decoded.text, { header: true, skipEmptyLines: true, dynamicTyping: false });
+      if (parseResult.errors.length > 0) {
+        uploadInfo.innerHTML = '<span class="error-tag">CSV解析出错，请检查文件格式</span>';
+        return;
+      }
+      loadData(parseResult.data, parseResult.meta.fields, file.name);
+    };
+    reader.readAsArrayBuffer(file);
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    const reader = new FileReader();
+    reader.onload = function() {
+      try {
+        const wb = XLSX.read(new Uint8Array(reader.result), { type: 'array' });
+        if (wb.SheetNames.length === 1) {
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          const headers = json.length > 0 ? Object.keys(json[0]) : [];
+          loadData(json, headers, file.name);
+        } else {
+          showSheetSelector(wb, file.name);
+        }
+      } catch(e) {
+        uploadInfo.innerHTML = '<span class="error-tag">Excel解析出错: ' + e.message + '</span>';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function showSheetSelector(wb, filename) {
+  const existing = document.getElementById('sheetModal');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay show';
+  overlay.id = 'sheetModal';
+  let listHtml = '';
+  wb.SheetNames.forEach((name, i) => {
+    listHtml += '<div class="sheet-option' + (i === 0 ? ' selected' : '') + '" data-idx="' + i + '">' + name + '</div>';
+  });
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <h3>选择工作表</h3>
+      <div class="sheet-list">${listHtml}</div>
+      <div class="modal-btns">
+        <button class="btn" onclick="document.getElementById('sheetModal').remove()">取消</button>
+        <button class="btn btn-primary" id="sheetConfirm">确定</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  let selectedIdx = 0;
+  overlay.querySelectorAll('.sheet-option').forEach(opt => {
+    opt.addEventListener('click', function() {
+      overlay.querySelectorAll('.sheet-option').forEach(o => o.classList.remove('selected'));
+      this.classList.add('selected');
+      selectedIdx = parseInt(this.dataset.idx);
+    });
+  });
+  document.getElementById('sheetConfirm').addEventListener('click', function() {
+    overlay.remove();
+    const sheet = wb.Sheets[wb.SheetNames[selectedIdx]];
+    const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    const headers = json.length > 0 ? Object.keys(json[0]) : [];
+    loadData(json, headers, filename);
+  });
+}
+
+function loadData(data, headers, filename) {
+  allData = data;
+  columns = headers;
+  columnTypes = {};
+  statsCache = {};
+  activeVar = null;
+
+  columns.forEach(col => {
+    let numCount = 0, totalCount = 0;
+    const vals = [];
+    data.forEach(row => {
+      const v = row[col];
+      if (v !== '' && v !== null && v !== undefined && String(v).trim() !== '') {
+        totalCount++;
+        vals.push(v);
+        if (!isNaN(Number(v)) && String(v).trim() !== '') numCount++;
+      }
+    });
+    if (totalCount === 0) {
+      columnTypes[col] = 'categorical';
+    } else if (numCount / totalCount > 0.7 && vals.length >= 5) {
+      columnTypes[col] = 'numeric';
+    } else {
+      columnTypes[col] = 'categorical';
+    }
+  });
+
+  renderAll(filename);
+}
+
+function computeStats(col) {
+  if (statsCache[col]) return statsCache[col];
+  const vals = allData.map(r => r[col]).filter(v => v !== '' && v !== null && v !== undefined && String(v).trim() !== '');
+  const n = vals.length;
+  if (n === 0) { statsCache[col] = { count: 0 }; return statsCache[col]; }
+
+  if (columnTypes[col] === 'numeric') {
+    const nums = vals.map(Number).filter(v => !isNaN(v));
+    const nn = nums.length;
+    if (nn === 0) { statsCache[col] = { count: n }; return statsCache[col]; }
+    nums.sort((a, b) => a - b);
+    const mean = nums.reduce((s, v) => s + v, 0) / nn;
+    const variance = nn > 1 ? nums.reduce((s, v) => s + (v - mean) ** 2, 0) / (nn - 1) : 0;
+    const std = Math.sqrt(variance);
+    const q1 = percentile(nums, 0.25);
+    const median = percentile(nums, 0.5);
+    const q3 = percentile(nums, 0.75);
+    let skewness = 0, kurtosis = 0;
+    if (std > 0 && nn > 2) {
+      skewness = nums.reduce((s, v) => s + ((v - mean) / std) ** 3, 0) * nn / ((nn - 1) * (nn - 2));
+    }
+    if (std > 0 && nn > 3) {
+      const m4 = nums.reduce((s, v) => s + ((v - mean) / std) ** 4, 0);
+      kurtosis = (nn * (nn + 1) * m4) / ((nn - 1) * (nn - 2) * (nn - 3)) - (3 * (nn - 1) ** 2) / ((nn - 2) * (nn - 3));
+    }
+    const unique = new Set(nums).size;
+    statsCache[col] = { count: nn, mean, std, min: nums[0], q1, median, q3, max: nums[nn - 1], skewness, kurtosis, unique, n_total: n };
+  } else {
+    const freq = {};
+    vals.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
+    const unique = Object.keys(freq).length;
+    statsCache[col] = { count: n, unique, freq, n_total: n };
+  }
+  return statsCache[col];
+}
+
+function percentile(sorted, p) {
+  const idx = p * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function renderAll(filename) {
+  if (allData.length === 0) return;
+
+  const totalRows = allData.length;
+  const totalCols = columns.length;
+  const numCols = columns.filter(c => columnTypes[c] === 'numeric').length;
+  const catCols = columns.filter(c => columnTypes[c] === 'categorical').length;
+  let missingRows = 0;
+  allData.forEach(row => {
+    if (columns.some(c => row[c] === '' || row[c] === null || row[c] === undefined)) missingRows++;
+  });
+
+  kpiRow.style.display = 'grid';
+  kpiRow.innerHTML = `
+    <div class="kpi-card"><div class="label">总行数</div><div class="value">${totalRows.toLocaleString()}</div></div>
+    <div class="kpi-card"><div class="label">总列数</div><div class="value">${totalCols}</div><div class="sub">数值: ${numCols} | 分类: ${catCols}</div></div>
+    <div class="kpi-card"><div class="label">缺失行数</div><div class="value">${missingRows}</div><div class="sub">${missingRows > 0 ? '缺失率 ' + (missingRows/totalRows*100).toFixed(1) + '%' : '数据完整'}</div></div>
+    <div class="kpi-card"><div class="label">文件名</div><div class="value" style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${filename}">${filename}</div></div>
+  `;
+
+  mainLayout.style.display = 'flex';
+  exportBtn.disabled = false;
+
+  renderVarList();
+  if (columns.length > 0) {
+    selectVariable(columns[0]);
+  }
+}
+
+function renderVarList() {
+  const search = document.getElementById('varSearch').value.toLowerCase();
+  let html = '';
+  columns.forEach(col => {
+    if (search && !col.toLowerCase().includes(search)) return;
+    const isNum = columnTypes[col] === 'numeric';
+    const badgeCls = isNum ? 'type-num' : 'type-cat';
+    const badgeText = isNum ? '123' : 'Abc';
+    const stats = computeStats(col);
+    const hasMissing = stats.n_total > stats.count;
+    html += `<div class="var-item${activeVar === col ? ' active' : ''}" onclick="selectVariable('${escapeHtml(col)}')">
+      <span class="type-badge ${badgeCls}">${badgeText}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(col)}</span>
+      ${hasMissing ? '<span class="missing-dot" title="有缺失值"></span>' : ''}
+    </div>`;
+  });
+  varList.innerHTML = html || '<div style="font-size:12px;color:#bbb;padding:8px;">无匹配变量</div>';
+}
+
+function filterVariables() { renderVarList(); }
+
+function selectVariable(col) {
+  activeVar = col;
+  renderVarList();
+  renderContent(col);
+}
+
+function disposeCharts() {
+  ['chartMain', 'chartBox', 'chartPie', 'corrChart'].forEach(id => {
+    const dom = document.getElementById(id);
+    if (dom && dom._chart) { dom._chart.dispose(); dom._chart = null; }
+  });
+}
+
+function renderContent(col) {
+  disposeCharts();
+  const isNum = columnTypes[col] === 'numeric';
+  const stats = computeStats(col);
+
+  contentArea.innerHTML = `
+    <div class="chart-panel">
+      <h3>${escapeHtml(col)} ${isNum ? '— 分布情况' : '— 频次分布'}</h3>
+      <div class="chart-row">
+        <div class="chart-box" id="chartMain"></div>
+        ${isNum ? '<div class="chart-box" id="chartBox"></div>' : '<div class="chart-box" id="chartPie"></div>'}
+      </div>
+    </div>
+    <div class="stats-panel">
+      <h3>描述性统计</h3>
+      ${buildStatsTable()}
+    </div>
+    <div class="corr-panel">
+      <h3>相关性矩阵（数值变量）</h3>
+      <div id="corrChart" style="width:100%;height:${Math.max(300, columns.filter(c => columnTypes[c] === 'numeric').length * 26 + 60)}px;"></div>
+      <p class="tooltip-note">红 = 正相关，蓝 = 负相关，颜色越深相关性越强</p>
+    </div>
+  `;
+
+  if (isNum) {
+    renderHistogram(col);
+    renderBoxplot(col);
+  } else {
+    renderBarChart(col);
+    renderPieChart(col);
+  }
+  renderCorrelation();
+}
+
+function buildStatsTable() {
+  const selCol = activeVar;
+  if (!selCol) return '<p style="color:#999;">请选择变量</p>';
+  const isNum = columnTypes[selCol] === 'numeric';
+  const stats = computeStats(selCol);
+
+  const metrics = isNum
+    ? ['变量名','计数','均值','标准差','最小值','Q1(25%)','中位数','Q3(75%)','最大值','偏度','峰度','唯一值数']
+    : ['变量名','计数','唯一值数'];
+
+  let thHtml = metrics.map(m => `<th>${m}</th>`).join('');
+  let rowsHtml = '';
+
+  columns.forEach(col => {
+    const s = computeStats(col);
+    if (isNum && columnTypes[col] === 'numeric') {
+      rowsHtml += `<tr${col === selCol ? ' style="background:#f0f4ff;"' : ''}>
+        <td class="var-name">${escapeHtml(col)}</td>
+        <td>${s.count}</td><td>${fmt(s.mean)}</td><td>${fmt(s.std)}</td>
+        <td>${fmt(s.min)}</td><td>${fmt(s.q1)}</td><td>${fmt(s.median)}</td><td>${fmt(s.q3)}</td>
+        <td>${fmt(s.max)}</td><td>${fmt(s.skewness)}</td><td>${fmt(s.kurtosis)}</td><td>${s.unique}</td>
+      </tr>`;
+    } else if (!isNum && columnTypes[col] === 'categorical') {
+      rowsHtml += `<tr${col === selCol ? ' style="background:#f0f4ff;"' : ''}>
+        <td class="var-name">${escapeHtml(col)}</td>
+        <td>${s.count}</td><td>${s.unique}</td>
+      </tr>`;
+    }
+  });
+
+  return `<table class="stats-table"><thead><tr>${thHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
+}
+
+function fmt(v) {
+  if (v === undefined || v === null || isNaN(v)) return '-';
+  if (Math.abs(v) < 0.0001 && v !== 0) return v.toExponential(3);
+  if (Math.abs(v) >= 10000) return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+  if (Number.isInteger(v)) return v.toString();
+  return parseFloat(v.toFixed(4)).toString();
+}
+
+function renderHistogram(col) {
+  const stats = computeStats(col);
+  const vals = allData.map(r => Number(r[col])).filter(v => !isNaN(v));
+  const bins = 20;
+  const min = stats.min, max = stats.max;
+  const binWidth = (max - min) / bins || 1;
+  const histogram = new Array(bins).fill(0);
+  vals.forEach(v => {
+    let idx = Math.min(Math.floor((v - min) / binWidth), bins - 1);
+    if (idx < 0) idx = 0;
+    histogram[idx]++;
+  });
+  const barData = histogram.map((h, i) => [min + binWidth * i + binWidth / 2, h]);
+
+  const dom = document.getElementById('chartMain');
+  const chart = echarts.init(dom);
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    xAxis: { type: 'value', name: col, nameTextStyle: { fontSize: 11 } },
+    yAxis: { type: 'value', name: '频次' },
+    series: [{
+      name: '频次', type: 'bar', data: barData.map(d => [d[0], d[1]]),
+      itemStyle: { color: '#b5c8f7', borderColor: '#4a7dff', borderWidth: 0.5, borderRadius: [3,3,0,0] },
+      barMaxWidth: '95%'
+    }]
+  });
+  dom._chart = chart;
+}
+
+function renderBoxplot(col) {
+  const vals = allData.map(r => Number(r[col])).filter(v => !isNaN(v));
+  const stats = computeStats(col);
+  const dom = document.getElementById('chartBox');
+  const chart = echarts.init(dom);
+  chart.setOption({
+    tooltip: { trigger: 'item' },
+    xAxis: { type: 'category', data: [col] },
+    yAxis: { type: 'value', name: col },
+    series: [{
+      type: 'boxplot',
+      data: [[stats.min, stats.q1, stats.median, stats.q3, stats.max]],
+      itemStyle: { color: '#4a7dff', borderColor: '#4a7dff' }
+    }]
+  });
+  dom._chart = chart;
+}
+
+function renderBarChart(col) {
+  const stats = computeStats(col);
+  if (!stats.freq) return;
+  let entries = Object.entries(stats.freq).sort((a, b) => b[1] - a[1]);
+  const maxShow = 30;
+  if (entries.length > maxShow) {
+    entries = entries.slice(0, maxShow);
+  }
+  const cats = entries.map(e => String(e[0]).length > 15 ? String(e[0]).slice(0,15) + '...' : String(e[0]));
+  const values = entries.map(e => e[1]);
+
+  const dom = document.getElementById('chartMain');
+  const chart = echarts.init(dom);
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    xAxis: { type: 'category', data: cats, axisLabel: { rotate: cats.length > 8 ? 45 : 0, fontSize: 10 } },
+    yAxis: { type: 'value', name: '频次' },
+    series: [{
+      type: 'bar', data: values,
+      itemStyle: { color: '#ffc069', borderColor: '#fa8c16', borderWidth: 0.5, borderRadius: [3,3,0,0] }
+    }]
+  });
+  dom._chart = chart;
+}
+
+function renderPieChart(col) {
+  const stats = computeStats(col);
+  if (!stats.freq) return;
+  let entries = Object.entries(stats.freq).sort((a, b) => b[1] - a[1]);
+  const maxShow = 20;
+  if (entries.length > maxShow) {
+    entries = entries.slice(0, maxShow);
+  }
+  const data = entries.map(e => ({ name: String(e[0]).length > 12 ? String(e[0]).slice(0,12) + '...' : String(e[0]), value: e[1] }));
+
+  const dom = document.getElementById('chartPie');
+  const chart = echarts.init(dom);
+  chart.setOption({
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    series: [{
+      type: 'pie', radius: ['35%', '65%'], data: data, label: { fontSize: 10 },
+      emphasis: { label: { fontSize: 13, fontWeight: 'bold' } }
+    }]
+  });
+  dom._chart = chart;
+}
+
+function renderCorrelation() {
+  const numCols = columns.filter(c => columnTypes[c] === 'numeric');
+  if (numCols.length < 2) {
+    document.getElementById('corrChart').innerHTML = '<div class="placeholder"><p>需要至少 2 个数值变量才能计算相关性</p></div>';
+    return;
+  }
+
+  const n = numCols.length;
+  const matrix = [];
+  const data = [];
+
+  for (let i = 0; i < n; i++) {
+    matrix[i] = [];
+    for (let j = 0; j < n; j++) {
+      let r = 0;
+      if (i === j) {
+        r = 1;
+      } else if (j > i) {
+        r = calcCorrelation(numCols[i], numCols[j]);
+      } else {
+        r = matrix[j][i];
+      }
+      matrix[i][j] = r;
+      data.push([i, j, r]);
+    }
+  }
+
+  const dom = document.getElementById('corrChart');
+  dom.innerHTML = '';
+  const chart = echarts.init(dom);
+  chart.setOption({
+    tooltip: {
+      position: 'top',
+      formatter: function(p) {
+        return numCols[p.value[1]] + ' vs ' + numCols[p.value[0]] + '<br/>相关系数: ' + p.value[2].toFixed(4);
+      }
+    },
+    grid: { left: 120, right: 40, top: 20, bottom: 60 },
+    xAxis: { type: 'category', data: numCols, axisLabel: { rotate: 45, fontSize: 10, interval: 0 }, position: 'bottom' },
+    yAxis: { type: 'category', data: numCols, axisLabel: { fontSize: 10 } },
+    visualMap: {
+      min: -1, max: 1,
+      calculable: true,
+      orient: 'horizontal',
+      left: 'center',
+      bottom: 0,
+      inRange: { color: ['#4a7dff', '#e8ecf4', '#e24b4a'] }
+    },
+    series: [{
+      type: 'heatmap',
+      data: data,
+      label: {
+        show: true,
+        fontSize: 10,
+        formatter: function(p) {
+          const v = p.value[2];
+          return Math.abs(v) >= 0.2 ? v.toFixed(2) : '';
+        }
+      },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.2)' } }
+    }]
+  });
+  dom._chart = chart;
+}
+
+function calcCorrelation(colA, colB) {
+  const pairs = [];
+  for (let i = 0; i < allData.length; i++) {
+    const a = Number(allData[i][colA]);
+    const b = Number(allData[i][colB]);
+    if (!isNaN(a) && !isNaN(b)) pairs.push([a, b]);
+  }
+  if (pairs.length < 3) return 0;
+  const n = pairs.length;
+  let sx = 0, sy = 0, sxy = 0, sx2 = 0, sy2 = 0;
+  for (const [x, y] of pairs) { sx += x; sy += y; sxy += x * y; sx2 += x * x; sy2 += y * y; }
+  const num = n * sxy - sx * sy;
+  const den = Math.sqrt((n * sx2 - sx * sx) * (n * sy2 - sy * sy));
+  return den === 0 ? 0 : num / den;
+}
+
+function escapeHtml(str) {
+  const el = document.createElement('span');
+  el.textContent = str;
+  return el.innerHTML;
+}
+
+function toggleExportMenu() {
+  document.getElementById('exportMenu').classList.toggle('show');
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.export-dropdown')) {
+    document.getElementById('exportMenu').classList.remove('show');
+  }
+});
+
+function exportStatsCSV() {
+  const numCols = columns.filter(c => columnTypes[c] === 'numeric');
+  const catCols = columns.filter(c => columnTypes[c] === 'categorical');
+  let csv = '\uFEFF';
+  if (numCols.length > 0) {
+    csv += '=== 数值变量 ===\n';
+    csv += '变量名,计数,均值,标准差,最小值,Q1(25%),中位数,Q3(75%),最大值,偏度,峰度,唯一值数\n';
+    numCols.forEach(col => {
+      const s = computeStats(col);
+      csv += [col, s.count, s.mean, s.std, s.min, s.q1, s.median, s.q3, s.max, s.skewness, s.kurtosis, s.unique].join(',') + '\n';
+    });
+  }
+  if (catCols.length > 0) {
+    csv += '\n=== 分类变量 ===\n';
+    csv += '变量名,计数,唯一值数\n';
+    catCols.forEach(col => {
+      const s = computeStats(col);
+      csv += [col, s.count, s.unique].join(',') + '\n';
+    });
+  }
+  downloadFile(csv, '描述性统计表.csv', 'text/csv;charset=utf-8');
+}
+
+function exportCorrelationCSV() {
+  const numCols = columns.filter(c => columnTypes[c] === 'numeric');
+  if (numCols.length < 2) return alert('需要至少 2 个数值变量');
+  let csv = '\uFEFF';
+  csv += ',' + numCols.join(',') + '\n';
+  numCols.forEach(colA => {
+    const row = [colA];
+    numCols.forEach(colB => {
+      if (colA === colB) row.push('1');
+      else row.push(calcCorrelation(colA, colB).toFixed(6));
+    });
+    csv += row.join(',') + '\n';
+  });
+  downloadFile(csv, '相关性矩阵.csv', 'text/csv;charset=utf-8');
+}
+
+function exportCurrentChart() {
+  const dom = document.getElementById('chartMain');
+  if (dom && dom._chart) {
+    const url = dom._chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' });
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (activeVar || '图表') + '_分布图.png';
+    a.click();
+  } else {
+    alert('暂无图表可导出');
+  }
+}
+
+async function exportAllCharts() {
+  const existing = document.getElementById('exportHiddenContainer');
+  if (existing) existing.remove();
+  const hidden = document.createElement('div');
+  hidden.id = 'exportHiddenContainer';
+  hidden.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:800px;height:400px;';
+  document.body.appendChild(hidden);
+
+  const zip = new JSZip();
+  let exported = 0;
+  for (const col of columns) {
+    const dom = document.createElement('div');
+    dom.style.cssText = 'width:800px;height:400px;';
+    hidden.appendChild(dom);
+    const chart = echarts.init(dom);
+    const isNum = columnTypes[col] === 'numeric';
+
+    if (isNum) {
+      const stats = computeStats(col);
+      const vals = allData.map(r => Number(r[col])).filter(v => !isNaN(v));
+      const bins = 20, min = stats.min, max = stats.max;
+      const binWidth = (max - min) / bins || 1;
+      const histogram = new Array(bins).fill(0);
+      vals.forEach(v => { let idx = Math.min(Math.floor((v - min) / binWidth), bins - 1); if (idx < 0) idx = 0; histogram[idx]++; });
+      chart.setOption({
+        title: { text: col, left: 'center', textStyle: { fontSize: 14 } },
+        xAxis: { type: 'value', name: col }, yAxis: { type: 'value', name: '频次' },
+        series: [{ type: 'bar', data: histogram.map((h, i) => [min + binWidth * i + binWidth / 2, h]), itemStyle: { color: '#b5c8f7', borderColor: '#4a7dff', borderWidth: 0.5 } }]
+      });
+    } else {
+      const s = computeStats(col);
+      if (s.freq) {
+        let entries = Object.entries(s.freq).sort((a, b) => b[1] - a[1]).slice(0, 30);
+        const cats = entries.map(e => String(e[0]).length > 15 ? String(e[0]).slice(0, 15) + '...' : String(e[0]));
+        chart.setOption({
+          title: { text: col, left: 'center', textStyle: { fontSize: 14 } },
+          xAxis: { type: 'category', data: cats, axisLabel: { rotate: cats.length > 8 ? 45 : 0, fontSize: 10 } },
+          yAxis: { type: 'value', name: '频次' },
+          series: [{ type: 'bar', data: entries.map(e => e[1]), itemStyle: { color: '#ffc069', borderColor: '#fa8c16', borderWidth: 0.5 } }]
+        });
+      }
+    }
+
+    await sleep(200);
+    try {
+      const url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' });
+      zip.file(col + '_分布图.png', url.split(',')[1], { base64: true });
+      exported++;
+    } catch(e) {}
+    chart.dispose();
+    dom.remove();
+  }
+
+  hidden.remove();
+  if (exported === 0) { alert('无图表可导出'); return; }
+  const blob = await zip.generateAsync({ type: 'blob' });
+  saveAs(blob, (rawFilename || '数据') + '_全部图表.zip');
+}
+
+function downloadFile(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+window.addEventListener('resize', function() {
+  ['chartMain', 'chartBox', 'chartPie', 'corrChart'].forEach(id => {
+    const dom = document.getElementById(id);
+    if (dom && dom._chart) dom._chart.resize();
+  });
+});
+</script>
+</body>
+</html>

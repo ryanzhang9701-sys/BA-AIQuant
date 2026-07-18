@@ -1,0 +1,43 @@
+{
+  "best_model": "Logistic",
+  "best_sharpe": 2.118904729927768,
+  "best_cumret": 0.131527,
+  "model_rankings": [
+    {
+      "Model": "Logistic",
+      "Sharpe": 2.118904729927768,
+      "Cumulative_Return": 0.131527,
+      "MaxDD": 0.0025439999999999035,
+      "Rank": 1
+    },
+    {
+      "Model": "XGBoost",
+      "Sharpe": 0.6140614941410777,
+      "Cumulative_Return": 0.113439,
+      "MaxDD": 0.08086500000000003,
+      "Rank": 2
+    },
+    {
+      "Model": "RandomForest",
+      "Sharpe": 0.3750378503032618,
+      "Cumulative_Return": 0.08203199999999997,
+      "MaxDD": 0.12210900000000006,
+      "Rank": 3
+    },
+    {
+      "Model": "LightGBM",
+      "Sharpe": 0.35726357692410515,
+      "Cumulative_Return": 0.06452000000000001,
+      "MaxDD": 0.09978000000000002,
+      "Rank": 4
+    }
+  ],
+  "strategy_params": {
+    "T_buy": 0.6,
+    "T_sell": 0.5,
+    "alpha": 0.5,
+    "cap_stock": 0.05,
+    "N_max": 20,
+    "beta": 0.6
+  }
+}
